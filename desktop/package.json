@@ -8,41 +8,43 @@
   "main": "public/electron.js",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run start\" \"wait-on http://localhost:3000 && npm run electron\"",
     "start": "react-scripts start",
     "build": "react-scripts build",
     "electron": "electron .",
-    "electron-dev": "ELECTRON_IS_DEV=1 electron .",
-    "dist": "npm run build && electron-builder",
+    "test": "echo \"No tests configured\" && exit 0",
+    "electron-dev": "concurrently \"npm start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron-pack": "npm run build && electron-builder",
+    "preelectron-pack": "npm run build",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "build:all": "npm run build && electron-builder --win --mac --linux",
+    "build:all": "npm run build && electron-builder --mac --win --linux",
+    "dist": "npm run build && electron-builder --publish=never",
     "publish": "npm run build && electron-builder --publish=always",
-    "lint": "eslint src --ext .ts,.tsx",
     "type-check": "tsc --noEmit",
-    "postinstall": "electron-builder install-app-deps"
+    "lint": "eslint src --ext .ts,.tsx --fix"
   },
   "dependencies": {
     "axios": "^1.6.2",
+    "crypto-js": "^4.2.0",
     "electron-store": "^10.1.0",
     "electron-updater": "^6.1.7",
     "mixpanel": "^0.18.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "socket.io-client": "^4.7.4",
-    "crypto-js": "^4.2.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/node": "^20.10.4",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
+    "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^6.13.1",
     "@typescript-eslint/parser": "^6.13.1",
     "autoprefixer": "^10.4.16",
     "concurrently": "^8.2.2",
-    "electron": "^28.1.0",
+    "electron": "^27.3.11",
     "electron-builder": "^24.9.1",
     "eslint": "^8.55.0",
     "postcss": "^8.4.32",
@@ -68,8 +70,7 @@
     "productName": "Nubia",
     "copyright": "Copyright © 2024 Nubia Team",
     "directories": {
-      "output": "dist",
-      "cache": ".cache"
+      "output": "dist"
     },
     "files": [
       "build/**/*",
@@ -81,7 +82,9 @@
       {
         "from": "assets/",
         "to": "assets/",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "publish": [
@@ -96,17 +99,23 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "entitlements": "build-config/entitlements.mac.plist",
+      "entitlementsInherit": "build-config/entitlements.mac.plist",
       "darkModeSupport": true
     },
     "win": {
@@ -114,11 +123,16 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "ia32"]
+          "arch": [
+            "x64",
+            "ia32"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "publisherName": "Nubia Team",
@@ -145,22 +159,28 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Nubia - Excel Automation",
-      "include": "build/installer.nsh"
+      "include": "build-config/installer.nsh"
     },
     "linux": {
       "icon": "assets/icon.png",
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "rpm",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "category": "Office",
