@@ -1,0 +1,187 @@
+{
+  "name": "nubia-desktop",
+  "version": "1.0.0",
+  "description": "Nubia - AI-Powered Excel Automation Assistant",
+  "author": "Nubia Team",
+  "homepage": "https://nubia.ai",
+  "license": "Commercial",
+  "main": "public/electron.js",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run start\" \"wait-on http://localhost:3000 && npm run electron\"",
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "electron": "electron .",
+    "electron-dev": "ELECTRON_IS_DEV=1 electron .",
+    "dist": "npm run build && electron-builder",
+    "build:win": "npm run build && electron-builder --win",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:linux": "npm run build && electron-builder --linux",
+    "build:all": "npm run build && electron-builder --win --mac --linux",
+    "publish": "npm run build && electron-builder --publish=always",
+    "lint": "eslint src --ext .ts,.tsx",
+    "type-check": "tsc --noEmit",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "electron-store": "^10.1.0",
+    "electron-updater": "^6.1.7",
+    "mixpanel": "^0.18.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "socket.io-client": "^4.7.4",
+    "crypto-js": "^4.2.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.4",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@typescript-eslint/eslint-plugin": "^6.13.1",
+    "@typescript-eslint/parser": "^6.13.1",
+    "autoprefixer": "^10.4.16",
+    "concurrently": "^8.2.2",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "eslint": "^8.55.0",
+    "postcss": "^8.4.32",
+    "react-scripts": "5.0.1",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.3.3",
+    "wait-on": "^7.2.0"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "build": {
+    "appId": "com.nubia.excel-automation",
+    "productName": "Nubia",
+    "copyright": "Copyright © 2024 Nubia Team",
+    "directories": {
+      "output": "dist",
+      "cache": ".cache"
+    },
+    "files": [
+      "build/**/*",
+      "node_modules/**/*",
+      "public/electron.js",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "assets/",
+        "to": "assets/",
+        "filter": ["**/*"]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.nubia.ai/releases/"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "darkModeSupport": true
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "publisherName": "Nubia Team",
+      "verifyUpdateCodeSignature": false,
+      "fileAssociations": [
+        {
+          "ext": "xlsx",
+          "name": "Excel Workbook",
+          "description": "Excel Workbook that can be automated with Nubia",
+          "role": "Editor"
+        },
+        {
+          "ext": "xls",
+          "name": "Excel 97-2003 Workbook",
+          "description": "Legacy Excel Workbook",
+          "role": "Editor"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nubia - Excel Automation",
+      "include": "build/installer.nsh"
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        },
+        {
+          "target": "rpm",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "Office",
+      "desktop": {
+        "StartupWMClass": "Nubia",
+        "MimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Keywords": "Excel;Automation;AI;Spreadsheet"
+      }
+    },
+    "appImage": {
+      "license": "LICENSE"
+    },
+    "deb": {
+      "depends": [
+        "gconf2",
+        "gconf-service",
+        "libnotify4",
+        "libappindicator1",
+        "libxtst6",
+        "libnss3"
+      ]
+    }
+  }
+}

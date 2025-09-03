@@ -1,0 +1,32 @@
+{
+  "name": "nubia-monorepo",
+  "version": "1.0.0",
+  "description": "Nubia - Accounting Excel Automation Chatbot",
+  "private": true,
+  "workspaces": [
+    "desktop",
+    "backend",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:desktop\" \"npm run dev:automation\"",
+    "dev:desktop": "npm run dev --workspace=desktop",
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:automation": "cd automation && python main.py",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "type-check": "npm run type-check --workspaces",
+    "test": "npm run test --workspaces",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "setup": "npm install && npm run docker:up && sleep 10 && npm run db:migrate",
+    "db:migrate": "npm run db:migrate --workspace=backend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
