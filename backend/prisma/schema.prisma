@@ -8,14 +8,20 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  settings  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id               String   @id @default(cuid())
+  email            String   @unique
+  password         String
+  settings         Json?
+  stripeCustomerId String?
+  trialStartedAt   DateTime? @default(now())
+  trialEndsAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
   
-  chats     Chat[]
+  chats            Chat[]
+  subscriptions    Subscription[]
+  usageRecords     UsageRecord[]
+  automationTemplates AutomationTemplate[]
   
   @@map("users")
 }
@@ -30,4 +36,82 @@ model Chat {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   @@map("chats")
+}
+
+model Subscription {
+  id                    String              @id @default(cuid())
+  userId                String
+  stripeSubscriptionId  String?             @unique
+  stripePriceId         String?
+  status                SubscriptionStatus  @default(TRIAL)
+  tier                  SubscriptionTier    @default(TRIAL)
+  automationsLimit      Int                 @default(10)
+  automationsUsed       Int                 @default(0)
+  billingPeriodStart    DateTime?
+  billingPeriodEnd      DateTime?
+  cancelAtPeriodEnd     Boolean             @default(false)
+  canceledAt            DateTime?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  
+  user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("subscriptions")
+}
+
+model UsageRecord {
+  id                String       @id @default(cuid())
+  userId            String
+  subscriptionId    String?
+  automationType    String       // "excel_automation", "chat_query", etc.
+  command           String?
+  success           Boolean      @default(false)
+  tokensUsed        Int?         // LLM tokens consumed
+  executionTimeMs   Int?         // Time taken to execute
+  errorMessage      String?
+  metadata          Json?        // Additional data about the automation
+  createdAt         DateTime     @default(now())
+  
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("usage_records")
+  @@index([userId, createdAt])
+  @@index([automationType])
+}
+
+model AutomationTemplate {
+  id            String   @id @default(cuid())
+  userId        String
+  name          String
+  description   String?
+  commands      Json     // Array of automation commands
+  category      String?  // "finance", "data_analysis", etc.
+  isPublic      Boolean  @default(false)
+  usageCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("automation_templates")
+  @@index([isPublic, category])
+  @@index([userId])
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  PAUSED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  UNPAID
+}
+
+enum SubscriptionTier {
+  TRIAL
+  STARTER
+  PRO
+  ENTERPRISE
 }

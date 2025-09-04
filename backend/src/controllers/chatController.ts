@@ -1,11 +1,18 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
+import { llmService } from '../services/llmService';
+import { UsageTracker } from '../utils/usageTracking';
 
 const prisma = new PrismaClient();
 
 interface AuthRequest extends Request {
   userId?: string;
+  user?: {
+    id: string;
+    email: string;
+  };
+  subscription?: any;
 }
 
 interface Message {
@@ -14,6 +21,11 @@ interface Message {
   sender: 'user' | 'assistant';
   timestamp: Date;
   userId?: string;
+  metadata?: {
+    cost?: number;
+    tokensUsed?: number;
+    automationType?: string;
+  };
 }
 
 export const getChatHistory = async (req: AuthRequest, res: Response) => {
@@ -61,13 +73,31 @@ export const getChatHistory = async (req: AuthRequest, res: Response) => {
 };
 
 export const sendMessage = async (req: AuthRequest, res: Response) => {
+  const startTime = Date.now();
+  let success = false;
+  let errorMessage: string | undefined;
+  let cost = 0;
+
   try {
-    const { content } = req.body;
-    const userId = req.userId;
+    const { content, context } = req.body;
+    const userId = req.user?.id;
 
     if (!userId) {
       return res.status(401).json({ 
         error: 'User not authenticated' 
+      });
+    }
+
+    // Check usage limits before processing
+    const usageCheck = await UsageTracker.checkUsageLimit(userId, 'chat_query');
+    if (!usageCheck.allowed) {
+      return res.status(429).json({
+        error: 'Usage limit exceeded',
+        message: usageCheck.message,
+        subscription: usageCheck.subscription,
+        usage: usageCheck.usage,
+        limit: usageCheck.limit,
+        upgradeRequired: true
       });
     }
 
@@ -78,6 +108,32 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
       sender: 'user',
       timestamp: new Date(),
       userId
+    };
+
+    // Process message with LLM service (backend owns the API keys)
+    let aiResponse: string;
+    try {
+      const llmResult = await llmService.processExcelCommand(content, context);
+      aiResponse = llmResult.response;
+      cost = llmResult.cost;
+      success = true;
+    } catch (error) {
+      logger.error('LLM processing failed:', error);
+      aiResponse = "I apologize, but I'm having trouble processing your request right now. Please try again in a moment.";
+      errorMessage = error instanceof Error ? error.message : 'LLM processing failed';
+    }
+
+    // Create AI response message
+    const aiMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      content: aiResponse,
+      sender: 'assistant',
+      timestamp: new Date(),
+      userId,
+      metadata: {
+        cost,
+        automationType: 'chat_query'
+      }
     };
 
     // Find or create a chat for today
@@ -100,23 +156,12 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
     
     if (chat) {
       // Add to existing chat
-      messages = Array.isArray(chat.messages) ? chat.messages as Message[] : [];
-      messages.push(userMessage);
+      messages = Array.isArray(chat.messages) ? chat.messages as unknown as Message[] : [];
+      messages.push(userMessage, aiMessage);
     } else {
       // Create new chat
-      messages = [userMessage];
+      messages = [userMessage, aiMessage];
     }
-
-    // Generate AI response (simplified for now)
-    const aiMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      content: generateAIResponse(content),
-      sender: 'assistant',
-      timestamp: new Date(),
-      userId
-    };
-    
-    messages.push(aiMessage);
 
     // Save to database
     if (chat) {
@@ -136,46 +181,52 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    logger.info(`Message sent by user: ${userId}`);
+    // Record usage for billing and analytics
+    await UsageTracker.recordUsage({
+      userId,
+      automationType: 'chat_query',
+      command: content,
+      success,
+      executionTimeMs: Date.now() - startTime,
+      errorMessage: errorMessage || undefined,
+      metadata: {
+        cost,
+        chatId: chat.id,
+        messageLength: content.length
+      }
+    });
+
+    logger.info(`Chat message processed for user: ${userId}, cost: $${cost.toFixed(4)}`);
 
     res.json({
       message: 'Message sent successfully',
       chatId: chat.id,
       userMessage,
-      aiMessage
+      aiMessage,
+      usage: {
+        current: usageCheck.usage + (success ? 1 : 0),
+        limit: usageCheck.limit,
+        subscription: usageCheck.subscription
+      }
     });
   } catch (error) {
     logger.error('Send message error:', error);
+    
+    // Record failed usage
+    if (req.user?.id) {
+      await UsageTracker.recordUsage({
+        userId: req.user.id,
+        automationType: 'chat_query',
+        command: req.body?.content || '',
+        success: false,
+        executionTimeMs: Date.now() - startTime,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+
     res.status(500).json({ 
       error: 'Internal server error' 
     });
   }
 };
 
-// Simplified AI response generator
-function generateAIResponse(userMessage: string): string {
-  const message = userMessage.toLowerCase();
-  
-  // Simple keyword-based responses for Excel automation
-  if (message.includes('excel') || message.includes('spreadsheet')) {
-    return "I can help you automate Excel tasks! What specific operation would you like to perform? I can help with data entry, formatting, calculations, charts, and more.";
-  }
-  
-  if (message.includes('formula') || message.includes('function')) {
-    return "I can help you create Excel formulas. Could you describe what calculation or operation you need? For example, SUM, VLOOKUP, IF statements, etc.";
-  }
-  
-  if (message.includes('chart') || message.includes('graph')) {
-    return "I can help you create charts and graphs in Excel. What type of data do you want to visualize? Bar charts, line graphs, pie charts, or something else?";
-  }
-  
-  if (message.includes('data') || message.includes('import')) {
-    return "I can help you work with data in Excel. Do you need to import data from another source, clean existing data, or organize it in a specific way?";
-  }
-  
-  if (message.includes('hello') || message.includes('hi')) {
-    return "Hello! I'm Nubia, your Excel automation assistant. I can help you automate spreadsheet tasks, create formulas, format data, and much more. What would you like to work on?";
-  }
-  
-  return "I understand you need help with Excel automation. Could you provide more specific details about the task you'd like to accomplish? I can help with formulas, data manipulation, formatting, charts, and many other Excel operations.";
-}

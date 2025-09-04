@@ -4,13 +4,21 @@ export const config = {
   author: 'Nubia Team',
   description: 'AI-powered Excel automation assistant',
   
+  api: {
+    baseUrl: process.env.NODE_ENV === 'development' 
+      ? 'http://localhost:5001' 
+      : 'https://api.nubia.ai',
+    timeout: 30000
+  },
+  
   features: {
     aiEnabled: true,
     excelAutomation: true,
     voiceInput: false, // Future feature
-    cloudSync: false,  // Future feature
+    cloudSync: true,   // Enabled for SaaS
     analytics: true,
-    autoUpdater: true
+    autoUpdater: true,
+    subscriptions: true // New SaaS feature
   },
   
   ui: {

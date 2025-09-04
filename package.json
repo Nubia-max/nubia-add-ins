@@ -12,7 +12,7 @@
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:desktop\" \"npm run dev:automation\"",
     "dev:desktop": "npm run dev --workspace=desktop",
     "dev:backend": "npm run dev --workspace=backend",
-    "dev:automation": "cd automation && python main.py",
+    "dev:automation": "cd automation && python3 main.py",
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces",
     "type-check": "npm run type-check --workspaces",

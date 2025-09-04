@@ -6,6 +6,7 @@ import {
 } from '../controllers/chatController';
 import { auth } from '../middleware/auth';
 import { validateRequest } from '../middleware/validateRequest';
+import { checkUsageMiddleware } from '../utils/usageTracking';
 
 const router = Router();
 

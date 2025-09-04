@@ -1,4 +1,12 @@
 import { Request, Response } from 'express';
+
+// Extend Request interface locally 
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+  };
+}
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
@@ -49,9 +57,14 @@ export const register = async (req: Request, res: Response) => {
     });
 
     // Generate JWT
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      throw new Error('JWT_SECRET environment variable is not set');
+    }
+    
     const token = jwt.sign(
       { userId: user.id },
-      process.env.JWT_SECRET as string,
+      jwtSecret,
       { expiresIn: '24h' }
     );
 
@@ -101,9 +114,14 @@ export const login = async (req: Request, res: Response) => {
     }
 
     // Generate JWT
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      throw new Error('JWT_SECRET environment variable is not set');
+    }
+    
     const token = jwt.sign(
       { userId: user.id },
-      process.env.JWT_SECRET as string,
+      jwtSecret,
       { expiresIn: '24h' }
     );
 
@@ -125,9 +143,13 @@ export const login = async (req: Request, res: Response) => {
   }
 };
 
-export const getProfile = async (req: AuthRequest, res: Response) => {
+export const getProfile = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const userId = req.userId;
+    const userId = (req as any).user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: userId },

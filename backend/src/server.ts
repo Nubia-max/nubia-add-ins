@@ -8,6 +8,8 @@ import dotenv from 'dotenv';
 
 import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
+import { subscriptionRoutes } from './routes/subscription';
+import { automationRoutes } from './routes/automation';
 import { errorHandler } from './middleware/errorHandler';
 import { setupSocketHandlers } from './utils/socket';
 import { logger } from './utils/logger';
@@ -60,6 +62,8 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/auth', authRoutes);
 app.use('/chat', chatRoutes);
+app.use('/subscription', subscriptionRoutes);
+app.use('/automation', automationRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

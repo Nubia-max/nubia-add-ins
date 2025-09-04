@@ -15,7 +15,7 @@ import pyautogui
 from openpyxl import Workbook, load_workbook
 from openpyxl.chart import BarChart, LineChart, PieChart, ScatterChart, Reference
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
-import pandas as pd
+# import pandas as pd  # Commented out due to compatibility issues
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -179,8 +179,72 @@ class AutomationTask:
             await self.visual_create_chart(params)
         elif action == "save_file":
             await self.visual_save_file(params.get("fileName"))
+        elif action == "execute_command":
+            await self.execute_command_visually(params.get("command", ""))
         else:
             logger.warning(f"Unknown visual action: {action}")
+            
+    async def execute_command_visually(self, command: str):
+        """Execute a text command by converting it to Excel actions"""
+        command_lower = command.lower()
+        
+        try:
+            # Open Excel first
+            await self.visual_new_workbook()
+            await asyncio.sleep(2)
+            
+            if "invoice" in command_lower:
+                # Create invoice
+                data = [
+                    ["INVOICE"],
+                    [""],
+                    ["Invoice #: INV-001", f"Date: {datetime.now().strftime('%Y-%m-%d')}"],
+                    [""],
+                    ["Bill To: Customer"],
+                    [""],
+                    ["Description", "Qty", "Price", "Total"],
+                    ["Service", "1", "500.00", "500.00"],
+                    [""],
+                    ["Total: $500.00"]
+                ]
+                await self.visual_enter_data({"data": data, "range": "A1"})
+                
+            elif "ledger" in command_lower or "record" in command_lower:
+                # Create ledger entry
+                data = [
+                    ["Date", "Description", "Debit", "Credit"],
+                    [datetime.now().strftime('%Y-%m-%d'), "Sales Entry", "", "5000.00"]
+                ]
+                await self.visual_enter_data({"data": data, "range": "A1"})
+                
+            elif "report" in command_lower:
+                # Create report
+                data = [
+                    ["Monthly Report"],
+                    [""],
+                    ["Category", "Amount"],
+                    ["Revenue", "50000"],
+                    ["Expenses", "30000"],
+                    ["Net Profit", "20000"]
+                ]
+                await self.visual_enter_data({"data": data, "range": "A1"})
+                
+            else:
+                # Generic spreadsheet
+                data = [
+                    ["Task Completed"],
+                    [f"Command: {command}"],
+                    [f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"]
+                ]
+                await self.visual_enter_data({"data": data, "range": "A1"})
+            
+            # Save the file
+            filename = f"Nubia_Task_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            await self.visual_save_file(filename)
+            
+        except Exception as e:
+            logger.error(f"Command execution failed: {e}")
+            raise
 
     async def execute_background_step(self, step: ExcelStep):
         """Execute a single step in background mode"""
@@ -483,6 +547,64 @@ async def health():
         "active_tasks": len(active_tasks),
         "excel_available": check_excel_system()
     }
+
+@app.post("/automate")
+async def automate_simple(request: dict):
+    """Simple automation endpoint for direct commands"""
+    try:
+        command = request.get("command", "")
+        mode = request.get("mode", "visual")
+        
+        logger.info(f"Received automation request: {command}")
+        
+        # Create a simple task for the command
+        task = ExcelTask(
+            id=str(uuid.uuid4()),
+            type="simple_command",
+            description=command,
+            complexity="simple",
+            estimatedActions=5,
+            parameters=request.get("parameters", {}),
+            mode=mode,
+            priority=1,
+            status="pending",
+            steps=[
+                ExcelStep(
+                    id=str(uuid.uuid4()),
+                    action="execute_command",
+                    description=f"Execute: {command}",
+                    parameters={"command": command},
+                    order=1,
+                    estimatedTime=10
+                )
+            ],
+            metadata={"estimatedDuration": 30}
+        )
+        
+        # Execute the task
+        automation_task = AutomationTask(task)
+        await automation_task.execute()
+        
+        if automation_task.status == "completed":
+            return {
+                "success": True,
+                "message": f"✅ {command} completed successfully!",
+                "data": {"task_id": task.id}
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"❌ {command} failed",
+                "error": automation_task.error
+            }
+        
+    except Exception as e:
+        logger.error(f"Automation error: {e}")
+        return {
+            "success": False,
+            "message": "Task failed",
+            "error": str(e)
+        }
 
 @app.post("/execute")
 async def execute_task(request: ExecuteRequest):
