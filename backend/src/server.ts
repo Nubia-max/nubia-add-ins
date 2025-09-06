@@ -10,6 +10,7 @@ import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
 import { subscriptionRoutes } from './routes/subscription';
 import { automationRoutes } from './routes/automation';
+import excelRoutes from './routes/excel';
 import { errorHandler } from './middleware/errorHandler';
 import { setupSocketHandlers } from './utils/socket';
 import { logger } from './utils/logger';
@@ -64,6 +65,7 @@ app.use('/auth', authRoutes);
 app.use('/chat', chatRoutes);
 app.use('/subscription', subscriptionRoutes);
 app.use('/automation', automationRoutes);
+app.use('/api/excel', excelRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

@@ -24,22 +24,32 @@ export const useAuth = () => {
   const [error, setError] = useState<string | null>(null);
 
   const checkAuth = async () => {
-    if (!cloudApi.isAuthenticated()) {
+    const isAuthenticated = await cloudApi.isAuthenticated();
+    console.log('🔍 checkAuth called, cloudApi.isAuthenticated():', isAuthenticated);
+    
+    if (!isAuthenticated) {
+      console.log('❌ User not authenticated, clearing state');
+      setUser(null);
+      setSubscription(null);
       setLoading(false);
       return;
     }
 
     try {
+      console.log('✅ User authenticated, fetching profile and subscription');
       const [profileData, subscriptionData] = await Promise.all([
         cloudApi.getProfile(),
         cloudApi.getSubscription()
       ]);
       
+      console.log('📊 Profile data:', profileData);
+      console.log('📊 Subscription data:', subscriptionData);
+      
       setUser(profileData);
       setSubscription(subscriptionData);
       setError(null);
     } catch (error) {
-      console.error('Auth check failed:', error);
+      console.error('❌ Auth check failed:', error);
       setError(error instanceof Error ? error.message : 'Authentication failed');
       setUser(null);
       setSubscription(null);
@@ -50,11 +60,15 @@ export const useAuth = () => {
 
   const login = async (email: string, password: string) => {
     try {
+      console.log('🚀 useAuth.login called');
       const result = await cloudApi.login(email, password);
+      console.log('✅ cloudApi.login successful:', result);
       setUser(result.user);
       await checkAuth(); // Refresh subscription data
+      console.log('✅ useAuth.login completed');
       return result;
     } catch (error) {
+      console.error('❌ useAuth.login failed:', error);
       setError(error instanceof Error ? error.message : 'Login failed');
       throw error;
     }
@@ -62,18 +76,22 @@ export const useAuth = () => {
 
   const register = async (email: string, password: string) => {
     try {
+      console.log('🚀 useAuth.register called');
       const result = await cloudApi.register(email, password);
+      console.log('✅ cloudApi.register successful:', result);
       setUser(result.user);
       await checkAuth(); // Get initial subscription (trial)
+      console.log('✅ useAuth.register completed');
       return result;
     } catch (error) {
+      console.error('❌ useAuth.register failed:', error);
       setError(error instanceof Error ? error.message : 'Registration failed');
       throw error;
     }
   };
 
-  const logout = () => {
-    cloudApi.logout();
+  const logout = async () => {
+    await cloudApi.logout();
     setUser(null);
     setSubscription(null);
     setError(null);

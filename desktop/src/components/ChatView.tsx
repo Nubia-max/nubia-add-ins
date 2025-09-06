@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './ChatView.css';
+import cloudApi from '../services/cloudApi';
 
 interface Message {
   id: string;
@@ -99,18 +100,7 @@ const ChatView: React.FC<ChatViewProps> = ({
     setInputValue('');
     setIsProcessing(true);
 
-    // Enhanced pattern matching for command variations
-    const taskKeywords = ['create', 'add', 'record', 'open', 'calculate', 'generate', 'make', 'build', 'insert', 'update', 'delete', 'sales', 'formula', 'chart', 'sum'];
-    const hasTaskKeyword = taskKeywords.some(keyword => 
-      command.toLowerCase().includes(keyword)
-    );
-    
-    // Additional patterns for sales tasks
-    const isSalesTask = /(?:record|add|enter|log|create).*(?:sales?|sale|revenue|income)|sales?.*(?:record|add|enter|log|create)|(?:sales?|sale).*\d+|\d+.*(?:sales?|sale)/i.test(command);
-    const hasAmount = /\d+(?:,\d{3})*(?:\.\d{2})?/.test(command);
-    
-    const isAutomationTask = hasTaskKeyword || isSalesTask || hasAmount;
-
+    // Check usage limits for Excel creation
     if (!canUseAutomation) {
       // Show upgrade prompt instead of executing task
       const upgradeMessage: Message = {
@@ -127,72 +117,58 @@ const ChatView: React.FC<ChatViewProps> = ({
       return;
     }
 
-    if (isAutomationTask) {
-      const assistantMessage: Message = {
+    // Send everything to chat - GPT decides what to do
+    try {
+      console.log('💬 Sending message to GPT:', command);
+      
+      if (!cloudApi.isAuthenticated()) {
+        console.error('❌ User not authenticated!');
+        throw new Error('Authentication required. Please log in to chat.');
+      }
+      
+      const result = await cloudApi.sendChatMessage(command);
+      console.log('✅ GPT response received:', result);
+      
+      // Always show the conversational message first
+      const responseMessage: Message = {
         id: (Date.now() + 1).toString(),
-        type: 'system',
-        content: "Opening Excel and automating your request...",
-        timestamp: new Date(),
-        automationStatus: 'pending'
+        type: 'assistant',
+        content: result.message,
+        timestamp: new Date()
       };
       
-      setMessages(prev => [...prev, assistantMessage]);
-
-      if (window.electronAPI) {
-        try {
-          // Call the real Excel automation
-          const result = await window.electronAPI.executeExcelAutomation({
-            command: command,
-            timestamp: new Date().toISOString()
-          });
-          
-          console.log('Excel automation result:', result);
-          
-          // The progress and completion will be handled by the IPC events
-          // from the automation-progress and automation-complete listeners
-          
-        } catch (error) {
-          console.error('Excel automation failed:', error);
-          setAutomationProgress(null);
-          setIsProcessing(false);
-          
-          const errorMessage: Message = {
-            id: (Date.now() + 2).toString(),
-            type: 'system',
-            content: `❌ Failed to execute Excel task: ${error.message}`,
-            timestamp: new Date(),
-            automationStatus: 'failed'
-          };
-          
-          setMessages(prev => [...prev, errorMessage]);
-        }
-      } else {
-        // Fallback if electronAPI is not available
-        setAutomationProgress(null);
-        setIsProcessing(false);
+      setMessages(prev => [...prev, responseMessage]);
+      
+      // If Excel data exists, create file in background and show success message
+      if (result.type === 'excel' && result.excelData) {
+        console.log('🎯 Excel data detected - creating file:', result.excelData);
         
-        const errorMessage: Message = {
+        // Show Excel success message (file was already created by backend)
+        const successMessage: Message = {
           id: (Date.now() + 2).toString(),
           type: 'system',
-          content: "❌ Excel automation is not available. Please ensure the app is running in Electron.",
+          content: `✅ Excel file created: ${result.excelData.filename}`,
           timestamp: new Date(),
-          automationStatus: 'failed'
+          automationStatus: 'completed'
         };
         
-        setMessages(prev => [...prev, errorMessage]);
+        setMessages(prev => [...prev, successMessage]);
       }
-    } else {
-      setTimeout(() => {
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          type: 'assistant',
-          content: "I understand you want help with Excel. Just tell me what specific task you'd like me to perform, and I'll handle it for you! For example, try saying 'record sales to Bola for 5000' or 'create a sum formula'.",
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
-        setIsProcessing(false);
-      }, 1000);
+      
+      setIsProcessing(false);
+      
+    } catch (error) {
+      console.error('❌ Message failed:', error);
+      setIsProcessing(false);
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: 'system',
+        content: `❌ Failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, errorMessage]);
     }
   };
 

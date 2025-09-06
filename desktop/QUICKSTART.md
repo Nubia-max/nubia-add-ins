@@ -35,7 +35,7 @@
 1. Visit https://platform.openai.com/api-keys
 2. Create a new API key
 3. Copy and paste into Nubia settings
-4. Recommended models: GPT-4, GPT-3.5-turbo
+4. Recommended models: GPT-4.1, GPT-5
 
 ### Anthropic
 1. Visit https://console.anthropic.com/

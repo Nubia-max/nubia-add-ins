@@ -40,22 +40,34 @@ export const getChatHistory = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Get all chats for the user
-    const chats = await prisma.chat.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        messages: true,
-        createdAt: true,
-        updatedAt: true
-      }
+    // Get all chats for the user with messages
+    const chats = await (prisma.chat as any).findMany({
+      where: { 
+        userId,
+        isActive: true 
+      },
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        chatMessages: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            role: true,
+            content: true,
+            metadata: true,
+            createdAt: true
+          }
+        }
+      },
+      take: 20 // Limit to recent 20 chats
     });
 
     // Transform the data
-    const chatHistory = chats.map(chat => ({
+    const chatHistory = chats.map((chat: any) => ({
       id: chat.id,
-      messages: Array.isArray(chat.messages) ? chat.messages : [],
+      title: chat.title || 'New Chat',
+      messages: chat.chatMessages,
+      messageCount: chat.chatMessages.length,
       createdAt: chat.createdAt,
       updatedAt: chat.updatedAt
     }));
@@ -72,6 +84,77 @@ export const getChatHistory = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const getChatById = async (req: AuthRequest, res: Response) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.userId;
+
+    const chat = await (prisma.chat as any).findFirst({
+      where: { 
+        id: chatId,
+        userId 
+      },
+      include: {
+        chatMessages: {
+          orderBy: { createdAt: 'asc' }
+        }
+      }
+    });
+
+    if (!chat) {
+      return res.status(404).json({ 
+        error: 'Chat not found' 
+      });
+    }
+
+    res.json(chat);
+  } catch (error) {
+    logger.error('Get chat error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error' 
+    });
+  }
+};
+
+export const createNewChat = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({ 
+        error: 'User not authenticated' 
+      });
+    }
+
+    // Deactivate old chats if needed
+    await (prisma.chat as any).updateMany({
+      where: { 
+        userId,
+        isActive: true,
+        chatMessages: {
+          none: {}
+        }
+      },
+      data: { isActive: false }
+    });
+
+    const chat = await (prisma.chat as any).create({
+      data: {
+        userId,
+        title: 'New Chat',
+        isActive: true
+      }
+    });
+
+    res.json(chat);
+  } catch (error) {
+    logger.error('Create chat error:', error);
+    res.status(500).json({ 
+      error: 'Internal server error' 
+    });
+  }
+};
+
 export const sendMessage = async (req: AuthRequest, res: Response) => {
   const startTime = Date.now();
   let success = false;
@@ -79,7 +162,7 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
   let cost = 0;
 
   try {
-    const { content, context } = req.body;
+    const { content, chatId } = req.body;
     const userId = req.user?.id;
 
     if (!userId) {
@@ -101,21 +184,74 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Create user message
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      content,
-      sender: 'user',
-      timestamp: new Date(),
-      userId
-    };
+    // Process user message (no need to create object since we save directly to DB)
 
-    // Process message with LLM service (backend owns the API keys)
+    // Get or create chat session
+    let chat = chatId ? 
+      await (prisma.chat as any).findFirst({
+        where: { id: chatId, userId },
+        include: {
+          chatMessages: {
+            orderBy: { createdAt: 'desc' },
+            take: 10 // Get last 10 messages for context
+          }
+        }
+      }) : null;
+
+    if (!chat) {
+      // Create new chat session
+      chat = await (prisma.chat as any).create({
+        data: {
+          userId,
+          title: content.substring(0, 50) + (content.length > 50 ? '...' : ''),
+          isActive: true
+        },
+        include: {
+          chatMessages: true
+        }
+      });
+    }
+
+    // Build conversation history for context
+    const conversationHistory = (chat.chatMessages || [])
+      .reverse()
+      .map((msg: any) => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content
+      }));
+
+    // Process message with LLM service including conversation history
     let aiResponse: string;
+    let excelGenerated = false;
     try {
-      const llmResult = await llmService.processExcelCommand(content, context);
-      aiResponse = llmResult.response;
+      const llmResult = await llmService.processExcelCommand(content, conversationHistory);
+      let response = llmResult.response;
       cost = llmResult.cost;
+      
+      // Check if GPT wants to create Excel
+      if (response.includes('[EXCEL_STRUCTURE]')) {
+        logger.info('GPT requested Excel creation');
+        
+        try {
+          // Extract JSON structure
+          const jsonStart = response.indexOf('{');
+          const jsonEnd = response.lastIndexOf('}');
+          const jsonStr = response.substring(jsonStart, jsonEnd + 1);
+          JSON.parse(jsonStr); // Validate JSON structure
+          
+          // TODO: Create Excel file using existing generator
+          // For now, just indicate that Excel would be created
+          aiResponse = `I'll create that Excel file for you right now!\n\n${response.split('[EXCEL_STRUCTURE]')[0].trim()}`;
+          excelGenerated = true;
+          
+        } catch (parseError) {
+          logger.error('Excel parsing error:', parseError);
+          aiResponse = 'I wanted to create an Excel file for you, but had trouble with the format. Could you try rephrasing your request?';
+        }
+      } else {
+        aiResponse = response;
+      }
+      
       success = true;
     } catch (error) {
       logger.error('LLM processing failed:', error);
@@ -123,9 +259,65 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
       errorMessage = error instanceof Error ? error.message : 'LLM processing failed';
     }
 
-    // Create AI response message
+    // Save user message to database
+    const userChatMessage = await (prisma as any).chatMessage.create({
+      data: {
+        chatId: chat.id,
+        role: 'user',
+        content,
+        metadata: {
+          timestamp: new Date()
+        }
+      }
+    });
+
+    // Save AI response to database
+    const aiChatMessage = await (prisma as any).chatMessage.create({
+      data: {
+        chatId: chat.id,
+        role: 'assistant',
+        content: aiResponse,
+        metadata: {
+          cost,
+          automationType: 'chat_query',
+          excelGenerated,
+          timestamp: new Date()
+        }
+      }
+    });
+
+    // Update chat's updated timestamp and title if it's the first message
+    const messageCount = await (prisma as any).chatMessage.count({
+      where: { chatId: chat.id }
+    });
+
+    if (messageCount <= 2) {
+      // Update title based on first user message
+      await (prisma.chat as any).update({
+        where: { id: chat.id },
+        data: {
+          title: content.substring(0, 50) + (content.length > 50 ? '...' : ''),
+          updatedAt: new Date()
+        }
+      });
+    } else {
+      await (prisma.chat as any).update({
+        where: { id: chat.id },
+        data: { updatedAt: new Date() }
+      });
+    }
+
+    // Create backward-compatible message objects
+    const userMessage: Message = {
+      id: userChatMessage.id,
+      content,
+      sender: 'user',
+      timestamp: new Date(),
+      userId
+    };
+
     const aiMessage: Message = {
-      id: (Date.now() + 1).toString(),
+      id: aiChatMessage.id,
       content: aiResponse,
       sender: 'assistant',
       timestamp: new Date(),
@@ -135,51 +327,6 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
         automationType: 'chat_query'
       }
     };
-
-    // Find or create a chat for today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    let chat = await prisma.chat.findFirst({
-      where: {
-        userId,
-        createdAt: {
-          gte: today,
-          lt: tomorrow
-        }
-      }
-    });
-
-    let messages: Message[] = [];
-    
-    if (chat) {
-      // Add to existing chat
-      messages = Array.isArray(chat.messages) ? chat.messages as unknown as Message[] : [];
-      messages.push(userMessage, aiMessage);
-    } else {
-      // Create new chat
-      messages = [userMessage, aiMessage];
-    }
-
-    // Save to database
-    if (chat) {
-      await prisma.chat.update({
-        where: { id: chat.id },
-        data: { 
-          messages: messages as any,
-          updatedAt: new Date()
-        }
-      });
-    } else {
-      chat = await prisma.chat.create({
-        data: {
-          userId,
-          messages: messages as any
-        }
-      });
-    }
 
     // Record usage for billing and analytics
     await UsageTracker.recordUsage({

@@ -7,20 +7,42 @@ class CloudApiService {
     this.baseUrl = process.env.NODE_ENV === 'production' 
       ? 'https://api.nubia.ai' 
       : 'http://localhost:5001';
-    this.token = this.getStoredToken();
+    this.token = null;
+    this.initializeToken();
   }
 
-  private getStoredToken(): string | null {
+  private async initializeToken(): Promise<void> {
+    this.token = await this.getStoredToken();
+  }
+
+  private async getStoredToken(): Promise<string | null> {
+    // Check if we're in Electron
+    if (typeof window !== 'undefined' && (window as any).electronAPI) {
+      return await (window as any).electronAPI.getData('nubia_auth_token');
+    }
+    // Fallback to localStorage for web
     return localStorage.getItem('nubia_auth_token');
   }
 
-  private setStoredToken(token: string): void {
-    localStorage.setItem('nubia_auth_token', token);
+  private async setStoredToken(token: string): Promise<void> {
+    // Check if we're in Electron
+    if (typeof window !== 'undefined' && (window as any).electronAPI) {
+      await (window as any).electronAPI.storeData('nubia_auth_token', token);
+    } else {
+      // Fallback to localStorage for web
+      localStorage.setItem('nubia_auth_token', token);
+    }
     this.token = token;
   }
 
-  private clearStoredToken(): void {
-    localStorage.removeItem('nubia_auth_token');
+  private async clearStoredToken(): Promise<void> {
+    // Check if we're in Electron
+    if (typeof window !== 'undefined' && (window as any).electronAPI) {
+      await (window as any).electronAPI.removeData('nubia_auth_token');
+    } else {
+      // Fallback to localStorage for web
+      localStorage.removeItem('nubia_auth_token');
+    }
     this.token = null;
   }
 
@@ -35,22 +57,36 @@ class CloudApiService {
       headers.Authorization = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearStoredToken();
-        throw new Error('Authentication required. Please log in.');
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        console.error('Failed to parse JSON response:', jsonError);
+        throw new Error('Invalid server response');
       }
-      throw new Error(data.error || 'API request failed');
-    }
 
-    return data;
+      if (!response.ok) {
+        if (response.status === 401) {
+          await this.clearStoredToken();
+          throw new Error(data.error || 'Authentication required. Please log in.');
+        }
+        throw new Error(data.error || `API request failed with status ${response.status}`);
+      }
+
+      return data;
+    } catch (error) {
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        console.error('Network error:', error);
+        throw new Error('Unable to connect to server. Please check your connection.');
+      }
+      throw error;
+    }
   }
 
   // Authentication
@@ -59,7 +95,7 @@ class CloudApiService {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    this.setStoredToken(data.token);
+    await this.setStoredToken(data.token);
     return data;
   }
 
@@ -68,12 +104,12 @@ class CloudApiService {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
-    this.setStoredToken(data.token);
+    await this.setStoredToken(data.token);
     return data;
   }
 
   async logout() {
-    this.clearStoredToken();
+    await this.clearStoredToken();
   }
 
   async getProfile() {
@@ -110,7 +146,31 @@ class CloudApiService {
     });
   }
 
-  // Excel Automation
+  // GPT-Driven Financial Document Generation
+  async generateFinancialDocument(command: string, context: any = {}, options: any = {}) {
+    return this.request('/financial/generate', {
+      method: 'POST',
+      body: JSON.stringify({ command, context, options }),
+    });
+  }
+
+  // Universal chat endpoint - GPT decides everything
+  async sendChatMessage(message: string, context: any = {}) {
+    return this.request('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, context }),
+    });
+  }
+
+  // Excel Generation with complete GPT freedom
+  async generateExcel(userInput: string) {
+    return this.request('/api/generate-excel', {
+      method: 'POST',
+      body: JSON.stringify({ userInput }),
+    });
+  }
+
+  // Excel Automation (Legacy - kept for compatibility)
   async processAutomation(command: string, context: any = {}, options: any = {}) {
     return this.request('/automation/process', {
       method: 'POST',
@@ -165,7 +225,10 @@ class CloudApiService {
   }
 
   // User state
-  isAuthenticated(): boolean {
+  async isAuthenticated(): Promise<boolean> {
+    if (!this.token) {
+      this.token = await this.getStoredToken();
+    }
     return !!this.token;
   }
 

@@ -1,4 +1,4 @@
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
 import { logger } from './logger';

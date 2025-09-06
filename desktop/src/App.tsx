@@ -54,8 +54,14 @@ function App() {
 
   // Show auth modal if not authenticated and auth loading is complete
   useEffect(() => {
-    if (!authLoading && !isAuthenticated && !showAuthModal) {
-      setShowAuthModal(true);
+    if (!authLoading) {
+      if (!isAuthenticated && !showAuthModal) {
+        console.log('User not authenticated, showing auth modal');
+        setShowAuthModal(true);
+      } else if (isAuthenticated && showAuthModal) {
+        console.log('User authenticated, hiding auth modal');
+        setShowAuthModal(false);
+      }
     }
   }, [authLoading, isAuthenticated, showAuthModal]);
 

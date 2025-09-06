@@ -6,7 +6,7 @@ export const config = {
   
   api: {
     baseUrl: process.env.NODE_ENV === 'development' 
-      ? 'http://localhost:5001' 
+      ? 'http://localhost:3001' 
       : 'https://api.nubia.ai',
     timeout: 30000
   },
@@ -37,7 +37,7 @@ export const config = {
   },
   
   ai: {
-    defaultModel: 'gpt-3.5-turbo',
+    defaultModel: 'gpt-4',
     maxTokens: 1000,
     temperature: 0.7,
     enableMarkdown: true,

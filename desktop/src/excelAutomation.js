@@ -1,7 +1,4 @@
-const robot = require('@jitsi/robotjs');
-const applescript = require('applescript');
 const { exec } = require('child_process');
-const path = require('path');
 const fs = require('fs');
 
 function sleep(ms) {
@@ -77,170 +74,160 @@ async function openExcel() {
 
 async function typeInExcel(text, pressEnter = true) {
   console.log(`⌨️ TYPING IN CELLS: "${text}"`);
-  await sleep(500);
-  robot.typeString(text);
-  if (pressEnter) {
-    await sleep(200);
-    robot.keyTap('enter');
-    console.log('↩️ Pressed Enter');
+  
+  if (process.platform === 'darwin') {
+    // Use AppleScript for Mac
+    const escapedText = text.replace(/"/g, '\\"').replace(/'/g, "''");
+    const script = `
+      tell application "Microsoft Excel"
+        activate
+        set value of active cell to "${escapedText}"
+        ${pressEnter ? 'tell application "System Events" to key code 36' : ''}
+      end tell
+    `;
+    
+    return new Promise((resolve, reject) => {
+      applescript.execString(script, (err) => {
+        if (err) {
+          console.error('Error typing in Excel:', err);
+          // Fallback to robotjs
+          robot.typeString(text);
+          if (pressEnter) {
+            robot.keyTap('enter');
+          }
+        }
+        resolve();
+      });
+    });
+  } else {
+    // Use robotjs for Windows
+    await sleep(500);
+    robot.typeString(text);
+    if (pressEnter) {
+      await sleep(200);
+      robot.keyTap('enter');
+      console.log('↩️ Pressed Enter');
+    }
   }
 }
 
 async function pressTab() {
-  await sleep(200);
-  robot.keyTap('tab');
+  if (process.platform === 'darwin') {
+    // Use AppleScript for Mac
+    const script = `
+      tell application "System Events"
+        tell process "Microsoft Excel"
+          key code 48
+        end tell
+      end tell
+    `;
+    
+    return new Promise((resolve) => {
+      applescript.execString(script, (err) => {
+        if (err) {
+          // Fallback to robotjs
+          robot.keyTap('tab');
+        }
+        resolve();
+      });
+    });
+  } else {
+    await sleep(200);
+    robot.keyTap('tab');
+  }
 }
 
-async function executeRealExcelTask(command, onProgress) {
-  console.log('🎯 EXECUTING REAL EXCEL TASK:', command);
-  console.log('📋 Command analysis starting...');
+async function executeRealExcelTask(command, token, onProgress) {
+  console.log('🎯 Processing Excel task via Nubia backend:', command);
+  console.log('🔑 Token provided:', token ? `${token.substring(0, 10)}...` : 'NO TOKEN');
   
   try {
-    // Step 1: Open Excel
-    if (onProgress) onProgress(0, 'Opening Microsoft Excel...');
-    await openExcel();
+    if (onProgress) onProgress(0, 'Processing with Nubia AI...');
     
-    // Step 2: Set up for data entry
-    if (onProgress) onProgress(1, 'Preparing spreadsheet...');
-    await sleep(1000);
+    // Check if token is provided
+    if (!token) {
+      console.error('❌ No authentication token provided');
+      throw new Error('Please log in to use Excel automation');
+    }
     
-    // Analyze the command to extract data
-    const lowerCommand = command.toLowerCase();
-    console.log('🔍 Analyzing command:', lowerCommand);
+    // Call YOUR backend API, not OpenAI directly
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
+    console.log('📡 Making request to:', `${backendUrl}/api/generate-excel`);
+    console.log('📦 Request body:', { userInput: command });
     
-    // Enhanced pattern matching for command variations
-    const isSalesTask = /(?:record|add|enter|log|create).*(?:sales?|sale|revenue|income)|sales?.*(?:record|add|enter|log|create)|(?:sales?|sale).*\d+|\d+.*(?:sales?|sale)/i.test(command);
-    const hasAmount = /\d+(?:,\d{3})*(?:\.\d{2})?/.test(command);
-    const hasBola = /bola/i.test(command);
+    const response = await fetch(`${backendUrl}/api/generate-excel`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        userInput: command
+      })
+    });
     
-    console.log('📊 Task analysis:', { isSalesTask, hasAmount, hasBola });
+    console.log('📥 Response status:', response.status);
+    console.log('📥 Response headers:', Object.fromEntries(response.headers.entries()));
     
-    if (isSalesTask) {
-      console.log('💰 DETECTED: Sales/Record task');
-      // Step 3: Create headers if this looks like a sales record
-      if (onProgress) onProgress(2, 'Creating headers...');
-      
-      // Navigate to A1 and create headers
-      robot.keyTap('home', ['cmd']); // Go to A1 (Ctrl+Home on Windows, Cmd+Home on Mac)
-      await sleep(500);
-      
-      await typeInExcel('Date', false);
-      await pressTab();
-      await typeInExcel('Description', false);
-      await pressTab();
-      await typeInExcel('Amount', true);
-      
-      // Step 4: Enter the actual data
-      if (onProgress) onProgress(3, 'Entering transaction data...');
-      
-      // Extract amount if present
-      const amountMatch = command.match(/(\d+)/);
-      console.log('💵 Amount extraction:', amountMatch ? amountMatch[0] : 'none found');
-      const amount = amountMatch ? amountMatch[0] : '';
-      
-      // Extract description with better pattern matching
-      let description = 'Transaction';
-      if (/bola/i.test(command)) {
-        description = 'Sales to Bola';
-      } else if (/client/i.test(command)) {
-        description = 'Client Payment';
-      } else if (/sales?|sale/i.test(command)) {
-        description = 'Sales Transaction';
+    if (response.status === 429) {
+      const data = await response.json();
+      throw new Error(data.error || 'Usage limit exceeded. Please upgrade your subscription.');
+    }
+    
+    if (!response.ok) {
+      console.error('❌ Backend response not OK:', response.status, response.statusText);
+      let errorData;
+      try {
+        errorData = await response.json();
+        console.error('❌ Backend error details:', errorData);
+      } catch (parseError) {
+        console.error('❌ Failed to parse error response:', parseError);
+        const textResponse = await response.text();
+        console.error('❌ Raw error response:', textResponse);
+        throw new Error(`API call failed: ${response.status} ${response.statusText} - ${textResponse}`);
       }
-      console.log('📝 Description determined:', description);
-      
-      // Enter current date
-      const currentDate = new Date().toLocaleDateString();
-      await typeInExcel(currentDate, false);
-      await pressTab();
-      
-      // Enter description
-      await typeInExcel(description, false);
-      await pressTab();
-      
-      // Enter amount
-      if (amount) {
-        await typeInExcel(amount, true);
-      } else {
-        await typeInExcel('0.00', true);
-      }
-      
-      if (onProgress) onProgress(4, 'Saving changes...');
-      await sleep(1000);
-      
-      // Save the workbook
-      console.log('💾 Saving Excel workbook...');
-      robot.keyTap('s', process.platform === 'darwin' ? ['cmd'] : ['ctrl']);
-      await sleep(2000);
-      console.log('✅ EXCEL AUTOMATION COMPLETE - File saved!');
+      throw new Error(errorData.error || `API call failed: ${response.statusText}`);
+    }
+    
+    console.log('✅ Response OK, parsing JSON...');
+    const result = await response.json();
+    console.log('📊 Backend result:', JSON.stringify(result, null, 2));
+    
+    if (onProgress) onProgress(2, 'AI analysis complete...');
+    
+    if (result.success) {
+      // Handle the response from the new API format
+      if (onProgress) onProgress(3, 'Excel file created...');
+      if (onProgress) onProgress(4, 'Excel workbook generated and opened!');
       
       return {
         success: true,
-        message: `✅ Successfully recorded: ${description} - ${amount || '0.00'}`,
+        message: `✅ Excel generated successfully: ${result.filename}`,
         data: {
-          date: currentDate,
-          description: description,
-          amount: amount || '0.00'
+          filename: result.filename,
+          filepath: result.filepath,
+          structure: result.structure,
+          worksheets: result.worksheets || []
         }
       };
-      
-    } else if (lowerCommand.includes('formula') || lowerCommand.includes('calculate')) {
-      // Handle formula requests
-      if (onProgress) onProgress(2, 'Creating formula...');
-      
-      if (lowerCommand.includes('sum')) {
-        await typeInExcel('=SUM(A1:A10)', true);
-      } else if (lowerCommand.includes('average')) {
-        await typeInExcel('=AVERAGE(A1:A10)', true);
-      } else {
-        await typeInExcel('=A1+B1', true);
-      }
-      
-      if (onProgress) onProgress(4, 'Formula applied...');
-      
-      return {
-        success: true,
-        message: '✅ Formula created successfully!',
-        data: { formula: 'Applied' }
-      };
-      
-    } else if (lowerCommand.includes('chart') || lowerCommand.includes('graph')) {
-      // Handle chart creation
-      if (onProgress) onProgress(2, 'Selecting data range...');
-      await sleep(1000);
-      
-      if (onProgress) onProgress(3, 'Creating chart...');
-      // Insert chart (Alt+F1 shortcut)
-      robot.keyTap('f1', ['alt']);
-      await sleep(2000);
-      
-      if (onProgress) onProgress(4, 'Chart created...');
-      
-      return {
-        success: true,
-        message: '✅ Chart created successfully!',
-        data: { chart: 'Created' }
-      };
-      
     } else {
-      // Generic task - just type the command as text
-      if (onProgress) onProgress(2, 'Entering data...');
-      await typeInExcel(command, true);
-      
-      if (onProgress) onProgress(4, 'Task completed...');
-      
-      return {
-        success: true,
-        message: '✅ Task completed in Excel!',
-        data: { text: command }
-      };
+      throw new Error(result.error || 'Excel generation failed');
     }
     
   } catch (error) {
-    console.error('Excel automation error:', error);
+    console.error('Excel generation error:', error);
+    
+    // Check if it's a subscription/limit error
+    if (error.message.includes('limit exceeded') || error.message.includes('upgrade')) {
+      // Trigger upgrade prompt in the UI
+      if (window.showUpgradePrompt) {
+        window.showUpgradePrompt();
+      }
+    }
+    
     return {
       success: false,
-      error: `Failed to execute Excel task: ${error.message}`
+      error: error.message
     };
   }
 }

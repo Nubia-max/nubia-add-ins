@@ -93,7 +93,7 @@ export const createSubscriptionPlan = async (req: Request, res: Response) => {
 
     // Update database subscription
     const subscription = await prisma.subscription.upsert({
-      where: { userId },
+      where: { id: `sub_${userId}` },
       create: {
         userId,
         stripeSubscriptionId: stripeSubscription.id,
@@ -255,7 +255,7 @@ const handleSubscriptionUpdate = async (subscription: any) => {
     where: { stripeSubscriptionId: subscription.id },
     data: {
       status: subscription.status.toUpperCase(),
-      tier: tierConfig.tier,
+      tier: tierConfig.tier as any,
       automationsLimit: tierConfig.automationsLimit,
       billingPeriodStart: new Date(subscription.current_period_start * 1000),
       billingPeriodEnd: new Date(subscription.current_period_end * 1000),

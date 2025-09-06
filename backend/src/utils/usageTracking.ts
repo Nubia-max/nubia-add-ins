@@ -34,7 +34,7 @@ export class UsageTracker {
           tokensUsed: params.tokensUsed,
           executionTimeMs: params.executionTimeMs,
           errorMessage: params.errorMessage,
-          metadata: params.metadata ? JSON.stringify(params.metadata) : null
+          metadata: params.metadata ? JSON.stringify(params.metadata) : undefined
         }
       });
 

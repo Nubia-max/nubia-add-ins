@@ -257,35 +257,42 @@ export const useAutomationTemplate = async (req: AutomationRequest, res: Respons
 // LLM-powered automation execution using company-owned API keys
 async function executeAutomation(command: string, context: any, options: any) {
   try {
-    // Generate Excel automation instructions using LLM service
-    const llmResult = await llmService.generateExcelInstructions(command);
+    // Generate Excel structure using LLM service
+    const llmResult = await llmService.generateExcelStructure(command);
     
     // Simulate processing time for automation execution
     await new Promise(resolve => setTimeout(resolve, 800));
     
     return {
-      type: 'excel_automation',
-      instructions: llmResult.instructions,
+      type: 'excel_creation',
+      structure: llmResult.structure,
       explanation: llmResult.explanation,
       success: true,
       metadata: {
         cost: llmResult.cost,
         processingTime: '0.8s',
-        instructionsCount: llmResult.instructions.length
+        worksheetCount: llmResult.structure.worksheets?.length || 0
       }
     };
   } catch (error) {
     logger.error('LLM automation generation failed:', error);
     
-    // Fallback to basic automation if LLM fails
+    // Fallback to basic Excel structure if LLM fails
     return {
-      type: 'excel_automation',
-      instructions: [
-        'Open Microsoft Excel',
-        `Execute task: ${command}`,
-        'Save the workbook'
-      ],
-      explanation: `I'll help you execute: ${command}`,
+      type: 'excel_creation',
+      structure: {
+        worksheets: [{
+          name: 'Sheet1',
+          columns: [
+            { header: 'Item', key: 'item', width: 20 },
+            { header: 'Value', key: 'value', width: 15 }
+          ],
+          data: [
+            { item: 'Task', value: command }
+          ]
+        }]
+      },
+      explanation: `I created a basic Excel file for: ${command}`,
       success: false,
       metadata: {
         cost: 0,

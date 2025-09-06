@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import cloudApi from '../services/cloudApi';
+import { useAuth } from '../hooks/useAuth';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -13,25 +13,35 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onSuccess }) => 
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  const { login, register } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    
+    console.log('Starting authentication...', { isLogin, email });
 
     try {
       let result;
       if (isLogin) {
-        result = await cloudApi.login(email, password);
+        console.log('Attempting login...');
+        result = await login(email, password);
+        console.log('Login successful:', result);
       } else {
-        result = await cloudApi.register(email, password);
+        console.log('Attempting registration...');
+        result = await register(email, password);
+        console.log('Registration successful:', result);
       }
       
+      setLoading(false);
       onSuccess(result.user);
       onClose();
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Authentication failed');
-    } finally {
+      console.error('Authentication error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Authentication failed';
+      setError(errorMessage);
       setLoading(false);
     }
   };
