@@ -153,7 +153,7 @@ export const saveAutomationTemplate = async (req: AutomationRequest, res: Respon
         userId,
         name,
         description,
-        commands,
+        commands: JSON.stringify(commands),
         category,
         isPublic
       }

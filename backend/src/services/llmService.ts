@@ -22,40 +22,22 @@ class LLMService {
     cost: number;
   }> {
     try {
-      const systemPrompt = `You are Nubia, a friendly AI Excel automation assistant.
+      const systemPrompt = `You are Nubia, an expert accountant and Excel automation assistant with COMPLETE CREATIVE FREEDOM.
 
-CAPABILITIES:
-- Create 1-50+ worksheets in a single workbook
-- Each worksheet can have completely different structures
-- Include formulas, calculations, pivot tables, charts
-- Handle accounting, financial, and any other type of data
+When users request accounting transactions or Excel files:
+1. Think like a professional accountant - create comprehensive workbooks with multiple related sheets
+2. Populate with REAL transaction data, not placeholders
+3. Include proper double-entry bookkeeping, calculated balances, linked formulas
+4. Create whatever structure makes most accounting sense (General Journal, Ledgers, Cash Book, Trial Balance, P&L, Balance Sheet, etc.)
 
-IMPORTANT:
-- Never give manual instructions like "Step 1: Open Excel"
-- Always speak as if you're creating the file: "I'll create that for you"
-- Be conversational while providing Excel structures
+You have unlimited freedom to:
+- Design any Excel structure that serves the user's needs
+- Create as many worksheets as beneficial (1-50+)
+- Include rich formulas, calculations, pivot tables, charts
+- Populate with meaningful, realistic transaction data
+- Use your expertise to suggest the best accounting practices
 
-For Excel tasks, respond conversationally, then include:
-[EXCEL_STRUCTURE]
-{
-  "worksheets": [
-    {
-      "name": "appropriate name",
-      "columns": [
-        {"header": "Column Name", "key": "key", "width": 20, "type": "text"}
-      ],
-      "data": [
-        {"key": "actual data values"}
-      ],
-      "formulas": [
-        {"cell": "E2", "formula": "=SUM(D2:D100)"}
-      ]
-    }
-  ]
-}
-[/EXCEL_STRUCTURE]
-
-For regular conversation, just chat normally.`;
+Respond naturally about what you're creating, then include a flexible JSON structure anywhere in your response. The JSON can be in any reasonable format - you decide what makes most sense.`;
 
       const messages: any[] = [
         { role: 'system', content: systemPrompt }
@@ -70,23 +52,39 @@ For regular conversation, just chat normally.`;
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
         messages,
-        max_tokens: 2000,
-        temperature: 0.7,
+        max_tokens: 4000,
+        temperature: 0.9, // Higher for more creativity
       });
+      // NOTE: Removed response_format restriction to give GPT complete freedom
 
       const response = completion.choices[0]?.message?.content || '';
       
-      // Parse Excel structure if present
+      // Parse Excel structure from GPT's free-form response
       let excelData = null;
-      if (response.includes('[EXCEL_STRUCTURE]')) {
-        const match = response.match(/\[EXCEL_STRUCTURE\]([\s\S]*?)\[\/EXCEL_STRUCTURE\]/);
-        if (match) {
-          try {
-            excelData = JSON.parse(match[1]);
-          } catch (e) {
-            logger.error('Failed to parse Excel structure:', e);
-            throw new Error('GPT returned invalid Excel structure');
+      
+      // Look for JSON anywhere in the response (much more flexible)
+      if (response.includes('{') && (response.includes('worksheet') || response.includes('sheet') || response.includes('column'))) {
+        try {
+          // Find JSON boundaries more intelligently
+          const jsonStart = response.indexOf('{');
+          const jsonEnd = response.lastIndexOf('}') + 1;
+          
+          if (jsonStart !== -1 && jsonEnd > jsonStart) {
+            let jsonStr = response.substring(jsonStart, jsonEnd);
+            
+            // Handle markdown code blocks
+            if (jsonStr.includes('```json')) {
+              jsonStr = jsonStr.split('```json')[1].split('```')[0];
+            } else if (jsonStr.includes('```')) {
+              jsonStr = jsonStr.split('```')[1].split('```')[0];
+            }
+            
+            excelData = JSON.parse(jsonStr.trim());
+            logger.info('Successfully parsed Excel structure from GPT response');
           }
+        } catch (e) {
+          logger.info('No valid Excel JSON found in response, treating as chat-only');
+          // Don't throw error - this allows pure conversational responses
         }
       }
       
@@ -97,7 +95,7 @@ For regular conversation, just chat normally.`;
       logger.info(`LLM Request processed - Cost: $${cost.toFixed(4)}`);
 
       return {
-        response: response.replace(/\[EXCEL_STRUCTURE\][\s\S]*?\[\/EXCEL_STRUCTURE\]/, '').trim(),
+        response: response.trim(), // Keep full response for natural flow
         excelData,
         cost
       };
@@ -122,12 +120,19 @@ For regular conversation, just chat normally.`;
     cost: number;
   }> {
     try {
-      const systemPrompt = `You are Nubia, an Excel automation expert.
+      const systemPrompt = `You are Nubia, an expert accountant and Excel automation specialist with UNLIMITED CREATIVE FREEDOM.
 
-Create comprehensive Excel structures with complete freedom.
-Return ONLY valid JSON with whatever structure makes sense for the request.
+For this request: "${userCommand}"
 
-Include multiple worksheets if beneficial. Be creative and comprehensive.`;
+Think like a professional accountant and create the most comprehensive, useful Excel workbook possible:
+
+• Analyze the accounting transactions and create proper double-entry bookkeeping
+• Design multiple interconnected worksheets (General Journal, Ledgers, Cash Book, Trial Balance, P&L, Balance Sheet, etc.)
+• Include REAL transaction data with proper dates, amounts, accounts, and descriptions
+• Add formulas for automatic calculations, running balances, and linked totals
+• Create whatever structure serves the user's accounting needs best
+
+Respond naturally about what you're creating, then provide a detailed JSON structure. Use any format that makes sense - you have complete freedom to design the optimal solution.`;
 
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4-turbo-preview',
@@ -135,23 +140,41 @@ Include multiple worksheets if beneficial. Be creative and comprehensive.`;
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userCommand }
         ],
-        max_tokens: 2000,
-        temperature: 0.7,
-        response_format: { type: "json_object" }
+        max_tokens: 4000,
+        temperature: 0.8, // Higher creativity for better accounting structures
+        // REMOVED: response_format restriction for complete freedom
       });
 
       const response = completion.choices[0]?.message?.content || '';
       
+      // Extract JSON from natural language response
       let parsed;
       try {
-        parsed = JSON.parse(response);
+        // Look for JSON anywhere in the response
+        const jsonStart = response.indexOf('{');
+        const jsonEnd = response.lastIndexOf('}') + 1;
+        
+        if (jsonStart !== -1 && jsonEnd > jsonStart) {
+          let jsonStr = response.substring(jsonStart, jsonEnd);
+          
+          // Handle markdown wrapping
+          if (jsonStr.includes('```json')) {
+            jsonStr = jsonStr.split('```json')[1].split('```')[0];
+          } else if (jsonStr.includes('```')) {
+            jsonStr = jsonStr.split('```')[1].split('```')[0];
+          }
+          
+          parsed = JSON.parse(jsonStr.trim());
+        } else {
+          throw new Error('No JSON structure found in response');
+        }
       } catch {
-        throw new Error('GPT returned invalid JSON for Excel structure');
+        throw new Error('Could not parse Excel structure from GPT response');
       }
 
-      // Ensure we have worksheets
-      if (!parsed.worksheets && !parsed.data) {
-        throw new Error('GPT did not return a valid Excel structure');
+      // Accept ANY structure GPT creates - no rigid validation
+      if (!parsed) {
+        throw new Error('GPT did not provide a structure');
       }
 
       const inputTokens = completion.usage?.prompt_tokens || 0;
@@ -160,9 +183,12 @@ Include multiple worksheets if beneficial. Be creative and comprehensive.`;
 
       logger.info(`Excel structure generated - Cost: $${cost.toFixed(4)}`);
 
+      // Extract explanation from the natural language part
+      const explanationText = response.substring(0, response.indexOf('{'));
+      
       return {
-        structure: parsed.worksheets ? { worksheets: parsed.worksheets } : parsed,
-        explanation: parsed.explanation || 'Excel file created with your data.',
+        structure: parsed, // Accept whatever structure GPT created
+        explanation: parsed.explanation || explanationText.trim() || 'Comprehensive Excel workbook created with your data.',
         cost
       };
     } catch (error: any) {

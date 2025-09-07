@@ -66,18 +66,46 @@ You decide the best structure. Be creative and comprehensive.`
           content: transactions
         }],
         temperature: 0.7,
-        max_tokens: 4000,
-        response_format: { type: "json_object" }
+        max_tokens: 4000, // Maximum allowed for gpt-4-turbo-preview
+        // REMOVED: response_format restriction for natural language + JSON freedom
       });
 
       const executionTime = Date.now() - startTime;
       const tokensUsed = completion.usage?.total_tokens || 0;
-      const result = JSON.parse(completion.choices[0].message.content || '{}');
-
-      // Validate that GPT created something
-      if (!result.worksheets && !result.sheets && !result.data) {
-        throw new Error('GPT failed to generate Excel structure');
+      
+      const gptResponse = completion.choices[0].message.content || '';
+      
+      // Parse JSON from GPT's natural language response
+      let result;
+      try {
+        const jsonStart = gptResponse.indexOf('{');
+        const jsonEnd = gptResponse.lastIndexOf('}') + 1;
+        
+        if (jsonStart !== -1 && jsonEnd > jsonStart) {
+          let jsonStr = gptResponse.substring(jsonStart, jsonEnd);
+          
+          // Clean up markdown code blocks
+          if (jsonStr.includes('```json')) {
+            jsonStr = jsonStr.split('```json')[1].split('```')[0];
+          } else if (jsonStr.includes('```')) {
+            jsonStr = jsonStr.split('```')[1].split('```')[0];
+          }
+          
+          result = JSON.parse(jsonStr.trim());
+        } else {
+          throw new Error('No JSON structure found');
+        }
+      } catch (error) {
+        throw new Error('Failed to parse Excel structure from GPT response');
       }
+
+      // Accept whatever structure GPT created (much more flexible)
+      if (!result || typeof result !== 'object') {
+        throw new Error('GPT did not provide a valid Excel structure');
+      }
+      
+      // Store the full GPT response for richer context
+      result._gptResponse = gptResponse;
 
       await prisma.usageRecord.create({
         data: {
@@ -161,12 +189,40 @@ Be creative and comprehensive. You can suggest entire worksheet structures if be
         }],
         temperature: 0.7,
         max_tokens: 2000,
-        response_format: { type: "json_object" }
+        // REMOVED: response_format restriction for natural language + JSON freedom
       });
 
       const executionTime = Date.now() - startTime;
       const tokensUsed = completion.usage?.total_tokens || 0;
-      const result = JSON.parse(completion.choices[0].message.content || '{}');
+      
+      const gptResponse = completion.choices[0].message.content || '';
+      
+      // Parse JSON from GPT's natural language response
+      let result;
+      try {
+        const jsonStart = gptResponse.indexOf('{');
+        const jsonEnd = gptResponse.lastIndexOf('}') + 1;
+        
+        if (jsonStart !== -1 && jsonEnd > jsonStart) {
+          let jsonStr = gptResponse.substring(jsonStart, jsonEnd);
+          
+          // Clean up markdown code blocks
+          if (jsonStr.includes('```json')) {
+            jsonStr = jsonStr.split('```json')[1].split('```')[0];
+          } else if (jsonStr.includes('```')) {
+            jsonStr = jsonStr.split('```')[1].split('```')[0];
+          }
+          
+          result = JSON.parse(jsonStr.trim());
+        } else {
+          throw new Error('No JSON structure found');
+        }
+      } catch (error) {
+        throw new Error('Failed to parse formula structure from GPT response');
+      }
+      
+      // Store the full GPT response for context
+      result._gptResponse = gptResponse;
 
       await prisma.usageRecord.create({
         data: {

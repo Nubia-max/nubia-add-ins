@@ -20,56 +20,36 @@ User request: "${userCommand}"
 
 Previous context: ${JSON.stringify(chatHistory.slice(-3))}
 
-You have COMPLETE FREEDOM to create ANY documents that would be most helpful for this request.
+CRITICAL: You must use this EXACT response format:
 
-Analyze this request and return a JSON structure for an Excel file with:
-- As many worksheets as you think are necessary (1-50+)
-- Whatever columns make sense for each worksheet  
-- Any formulas, formatting, or structure you deem appropriate
-- Creative solutions that go beyond basic templates
+[CHAT_RESPONSE]
+Your friendly, conversational response here. Be warm and simple. Don't mention technical accounting terms unless the user asks. Just tell them you've recorded their transactions.
+[/CHAT_RESPONSE]
 
-Think like a professional accountant, financial analyst, or business consultant. Create what would be MOST useful and comprehensive for this specific request.
-
-Return ONLY a JSON object with this flexible structure:
+[EXCEL_DATA]
 {
   "worksheets": [
-    {
-      "name": "descriptive worksheet name",
-      "description": "what this worksheet does",
-      "columns": [
-        {
-          "header": "Column Name", 
-          "key": "column_key",
-          "width": 15,
-          "type": "text|number|currency|date|formula"
-        }
-      ],
-      "data": [
-        // Sample data rows that match the columns
-      ],
-      "formulas": [
-        {
-          "cell": "C1",
-          "formula": "=SUM(C2:C100)",
-          "description": "Total calculation"
-        }
-      ],
-      "formatting": {
-        "headerStyle": {
-          "font": { "bold": true },
-          "fill": { "fgColor": { "rgb": "4472C4" } }
-        },
-        "currencyColumns": ["amount", "total", "price"],
-        "dateColumns": ["date", "created_at"]
-      }
-    }
-  ],
-  "suggestions": [
-    "Additional features or next steps the user might want"
+    // Create comprehensive accounting worksheets with ACTUAL POPULATED DATA
   ]
 }
+[/EXCEL_DATA]
 
-Be creative and comprehensive. Create multiple worksheets if beneficial. Include real sample data that makes sense for the context.
+For the EXCEL_DATA section:
+- Create multiple interconnected accounting worksheets (General Journal, Cash Book, Ledger accounts, Trial Balance, Income Statement, Balance Sheet, etc.)
+- POPULATE with the ACTUAL transaction data from the user's request
+- Use REAL amounts, proper dates, actual account names, and meaningful descriptions
+- Include formulas for running balances, totals, and calculations
+- Design whatever structure best serves the accounting need
+
+For the CHAT_RESPONSE section:
+- Be friendly and conversational
+- Simply acknowledge you've recorded their transactions
+- Don't show technical details or mention debits/credits unless asked
+- Keep it warm and simple
+
+Think like a professional accountant and create the most comprehensive, populated accounting workbook possible.
+
+REMEMBER: Use the [CHAT_RESPONSE] and [EXCEL_DATA] format shown above. Be creative and comprehensive. Create multiple worksheets with ACTUAL POPULATED DATA that reflects the user's specific transactions.
 `;
 
     try {

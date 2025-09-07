@@ -29,12 +29,12 @@ export class UsageTracker {
           userId: params.userId,
           subscriptionId: subscription?.id,
           automationType: params.automationType,
-          command: params.command,
+          command: params.command || '',
           success: params.success,
           tokensUsed: params.tokensUsed,
           executionTimeMs: params.executionTimeMs,
           errorMessage: params.errorMessage,
-          metadata: params.metadata ? JSON.stringify(params.metadata) : undefined
+          metadata: params.metadata ? JSON.stringify(params.metadata) : null
         }
       });
 
