@@ -3,20 +3,24 @@ const OpenAI = require('openai');
 
 class FinancialIntelligenceService {
   constructor() {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is required. Please set it in your .env file.');
+    }
+    
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
   }
 
   async processFinancialCommand(userCommand, chatHistory = []) {
-    console.log('🧠 Processing financial command with complete GPT freedom:', userCommand);
+    console.log('🧠 Processing command with complete GPT freedom:', userCommand);
     
     const prompt = `
 User request: "${userCommand}"
 
 Previous context: ${JSON.stringify(chatHistory.slice(-3))}
 
-You have COMPLETE FREEDOM to create ANY financial documents that would be most helpful for this request.
+You have COMPLETE FREEDOM to create ANY documents that would be most helpful for this request.
 
 Analyze this request and return a JSON structure for an Excel file with:
 - As many worksheets as you think are necessary (1-50+)
@@ -25,13 +29,6 @@ Analyze this request and return a JSON structure for an Excel file with:
 - Creative solutions that go beyond basic templates
 
 Think like a professional accountant, financial analyst, or business consultant. Create what would be MOST useful and comprehensive for this specific request.
-
-Examples of what you can create:
-- Multiple related worksheets (Sales Log, Tax Calc, P&L, Cash Flow, etc.)
-- Dynamic formulas and calculations
-- Different formats for different needs
-- Charts and pivot table suggestions
-- Compliance-ready structures
 
 Return ONLY a JSON object with this flexible structure:
 {
@@ -60,8 +57,7 @@ Return ONLY a JSON object with this flexible structure:
       "formatting": {
         "headerStyle": {
           "font": { "bold": true },
-          "fill": { "fgColor": { "rgb": "4472C4" } },
-          "font": { "color": { "rgb": "FFFFFF" } }
+          "fill": { "fgColor": { "rgb": "4472C4" } }
         },
         "currencyColumns": ["amount", "total", "price"],
         "dateColumns": ["date", "created_at"]
@@ -78,11 +74,11 @@ Be creative and comprehensive. Create multiple worksheets if beneficial. Include
 
     try {
       const response = await this.openai.chat.completions.create({
-        model: "gpt-4",
+        model: "gpt-4-turbo-preview",
         messages: [
           { 
             role: "system", 
-            content: "You are an expert accountant and financial analyst with complete creative freedom to design optimal financial documents. Always respond with valid JSON only." 
+            content: "You are an expert accountant and financial analyst with complete creative freedom to design optimal documents. Always respond with valid JSON only." 
           },
           { role: "user", content: prompt }
         ],
@@ -91,7 +87,7 @@ Be creative and comprehensive. Create multiple worksheets if beneficial. Include
       });
 
       const gptResponse = response.choices[0].message.content;
-      console.log('🎯 GPT Response:', gptResponse);
+      console.log('🎯 GPT Response received');
 
       // Parse and validate the JSON response
       let structure;
@@ -108,12 +104,12 @@ Be creative and comprehensive. Create multiple worksheets if beneficial. Include
       } catch (parseError) {
         console.error('JSON parse error:', parseError);
         console.error('Original GPT response:', gptResponse);
-        throw new Error('Invalid JSON response from GPT');
+        throw new Error('GPT returned invalid JSON. Please try again.');
       }
 
-      // Validate structure
+      // Validate structure - NO FALLBACK
       if (!structure.worksheets || !Array.isArray(structure.worksheets)) {
-        throw new Error('Invalid worksheet structure from GPT');
+        throw new Error('GPT did not return a valid Excel structure with worksheets.');
       }
 
       return {
@@ -125,11 +121,12 @@ Be creative and comprehensive. Create multiple worksheets if beneficial. Include
 
     } catch (error) {
       console.error('❌ Financial Intelligence Error:', error);
-      return {
-        success: false,
-        error: error.message,
-        fallback: this.createFallbackStructure(userCommand)
-      };
+      
+      // NO FALLBACK - just throw the error
+      if (error.message.includes('API')) {
+        throw new Error('OpenAI API error. Please check your API key and try again.');
+      }
+      throw error;
     }
   }
 
@@ -194,53 +191,6 @@ Create the most relevant and useful financial documents for this specific user a
       industry: detectedIndustry,
       documentTypes,
       complexity: complexityScore > 2 ? 'high' : complexityScore > 0 ? 'medium' : 'simple'
-    };
-  }
-
-  createFallbackStructure(userCommand) {
-    console.log('🛟 Creating fallback structure for:', userCommand);
-    
-    return {
-      worksheets: [{
-        name: "Financial Data",
-        description: "General financial tracking sheet",
-        columns: [
-          { header: "Date", key: "date", width: 12, type: "date" },
-          { header: "Description", key: "description", width: 25, type: "text" },
-          { header: "Amount", key: "amount", width: 15, type: "currency" },
-          { header: "Category", key: "category", width: 15, type: "text" },
-          { header: "Running Total", key: "total", width: 15, type: "formula" }
-        ],
-        data: [
-          {
-            date: new Date().toLocaleDateString(),
-            description: "Sample Transaction",
-            amount: 0,
-            category: "General",
-            total: "=SUM(C$2:C2)"
-          }
-        ],
-        formulas: [
-          {
-            cell: "E2",
-            formula: "=SUM(C$2:C2)",
-            description: "Running total of amounts"
-          }
-        ],
-        formatting: {
-          headerStyle: {
-            font: { bold: true },
-            fill: { fgColor: { rgb: "4472C4" } }
-          },
-          currencyColumns: ["amount", "total"],
-          dateColumns: ["date"]
-        }
-      }],
-      suggestions: [
-        "Add more specific transaction categories",
-        "Create monthly summary charts",
-        "Set up automated tax calculations"
-      ]
     };
   }
 

@@ -5,11 +5,10 @@ class LLMService {
   private openai: OpenAI;
 
   constructor() {
-    // Set the API key from environment or use the provided key
-    const apiKey = process.env.OPENAI_API_KEY || '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';
+    const apiKey = process.env.OPENAI_API_KEY;
     
-    if (!apiKey || apiKey === 'your-api-key-here') {
-      throw new Error('OPENAI_API_KEY environment variable is required');
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY environment variable is required. Please set it in your .env file.');
     }
     
     this.openai = new OpenAI({
@@ -19,85 +18,101 @@ class LLMService {
 
   async processExcelCommand(message: string, conversationHistory?: Array<{role: 'user' | 'assistant', content: string}>): Promise<{
     response: string;
-    actions?: any[];
+    excelData?: any;
     cost: number;
   }> {
     try {
-      const systemPrompt = `You are Nubia, an Excel automation system that CREATES Excel files.
+      const systemPrompt = `You are Nubia, a friendly AI Excel automation assistant.
 
-NEVER give instructions or steps.
-NEVER say "Step 1", "Step 2", etc.
-NEVER tell users to create workbooks or click anything.
+CAPABILITIES:
+- Create 1-50+ worksheets in a single workbook
+- Each worksheet can have completely different structures
+- Include formulas, calculations, pivot tables, charts
+- Handle accounting, financial, and any other type of data
 
-When given transactions, IMMEDIATELY return:
-{
-  "action": "create_excel",
-  "data": {
-    "worksheets": [actual data structure with the transactions already recorded]
-  }
-}
+IMPORTANT:
+- Never give manual instructions like "Step 1: Open Excel"
+- Always speak as if you're creating the file: "I'll create that for you"
+- Be conversational while providing Excel structures
 
-You CREATE the Excel file with the data already in it.
-You are automation software, not a teacher.
-
-When users need Excel work, analyze what they need and respond with:
+For Excel tasks, respond conversationally, then include:
 [EXCEL_STRUCTURE]
 {
   "worksheets": [
     {
-      "name": "Sheet name that makes sense",
+      "name": "appropriate name",
       "columns": [
-        {"header": "Column Name", "key": "logical_key", "width": 20},
-        {"header": "Another Column", "key": "another_key", "width": 15}
+        {"header": "Column Name", "key": "key", "width": 20, "type": "text"}
       ],
       "data": [
-        {"logical_key": "Sample data", "another_key": "More data"}
+        {"key": "actual data values"}
+      ],
+      "formulas": [
+        {"cell": "E2", "formula": "=SUM(D2:D100)"}
       ]
     }
   ]
 }
 [/EXCEL_STRUCTURE]
 
-For regular conversation (greetings, questions, explanations), be friendly and helpful.
-Remember: You CREATE Excel files, you don't teach Excel. Use your accounting expertise to design the best structure for their specific needs.`;
+For regular conversation, just chat normally.`;
 
-      // Build messages array with conversation history
       const messages: any[] = [
         { role: 'system', content: systemPrompt }
       ];
 
-      // Add conversation history if provided (limit to last 10 messages for token management)
       if (conversationHistory && conversationHistory.length > 0) {
-        const recentHistory = conversationHistory.slice(-10);
-        messages.push(...recentHistory);
+        messages.push(...conversationHistory.slice(-10));
       }
 
-      // Add current message
       messages.push({ role: 'user', content: message });
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4-turbo-preview',
         messages,
-        max_tokens: 1000,
+        max_tokens: 2000,
         temperature: 0.7,
       });
 
-      const response = completion.choices[0]?.message?.content || 'I apologize, but I encountered an issue processing your request.';
+      const response = completion.choices[0]?.message?.content || '';
       
-      // Calculate cost (approximate)
+      // Parse Excel structure if present
+      let excelData = null;
+      if (response.includes('[EXCEL_STRUCTURE]')) {
+        const match = response.match(/\[EXCEL_STRUCTURE\]([\s\S]*?)\[\/EXCEL_STRUCTURE\]/);
+        if (match) {
+          try {
+            excelData = JSON.parse(match[1]);
+          } catch (e) {
+            logger.error('Failed to parse Excel structure:', e);
+            throw new Error('GPT returned invalid Excel structure');
+          }
+        }
+      }
+      
       const inputTokens = completion.usage?.prompt_tokens || 0;
       const outputTokens = completion.usage?.completion_tokens || 0;
-      const cost = (inputTokens * 0.00003) + (outputTokens * 0.00006); // GPT-4 pricing
+      const cost = (inputTokens * 0.01 / 1000) + (outputTokens * 0.03 / 1000);
 
-      logger.info(`LLM Request processed - Input tokens: ${inputTokens}, Output tokens: ${outputTokens}, Cost: $${cost.toFixed(4)}`);
+      logger.info(`LLM Request processed - Cost: $${cost.toFixed(4)}`);
 
       return {
-        response,
+        response: response.replace(/\[EXCEL_STRUCTURE\][\s\S]*?\[\/EXCEL_STRUCTURE\]/, '').trim(),
+        excelData,
         cost
       };
-    } catch (error) {
+    } catch (error: any) {
       logger.error('LLM Service error:', error);
-      throw new Error('Failed to process request with AI service');
+      
+      if (error.message?.includes('401')) {
+        throw new Error('Invalid OpenAI API key. Please check your .env file.');
+      } else if (error.message?.includes('429')) {
+        throw new Error('OpenAI rate limit exceeded. Please try again later.');
+      } else if (error.message?.includes('insufficient_quota')) {
+        throw new Error('OpenAI quota exceeded. Please check your billing.');
+      }
+      
+      throw new Error(`OpenAI API error: ${error.message}`);
     }
   }
 
@@ -107,71 +122,52 @@ Remember: You CREATE Excel files, you don't teach Excel. Use your accounting exp
     cost: number;
   }> {
     try {
-      const systemPrompt = `You are Nubia, an Excel automation system that CREATES Excel files.
+      const systemPrompt = `You are Nubia, an Excel automation expert.
 
-NEVER give instructions or steps.
-NEVER say "Step 1", "Step 2", etc.
-NEVER tell users to create workbooks or click anything.
+Create comprehensive Excel structures with complete freedom.
+Return ONLY valid JSON with whatever structure makes sense for the request.
 
-Return ONLY a JSON structure for creating the actual Excel file:
-{
-  "action": "create_excel",
-  "data": {
-    "worksheets": [
-      {
-        "name": "Actual worksheet name",
-        "columns": [
-          {"header": "Column Name", "key": "key", "width": 20}
-        ],
-        "data": [
-          {"key": "Actual data already populated"}
-        ]
-      }
-    ]
-  },
-  "explanation": "I created this Excel file for you with your data already in it."
-}
-
-You CREATE the Excel file with the data already populated.`;
+Include multiple worksheets if beneficial. Be creative and comprehensive.`;
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4',
+        model: 'gpt-4-turbo-preview',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userCommand }
         ],
-        max_tokens: 800,
-        temperature: 0.3,
+        max_tokens: 2000,
+        temperature: 0.7,
+        response_format: { type: "json_object" }
       });
 
-      const response = completion.choices[0]?.message?.content || '{}';
+      const response = completion.choices[0]?.message?.content || '';
       
       let parsed;
       try {
         parsed = JSON.parse(response);
       } catch {
-        parsed = {
-          action: 'create_excel',
-          data: { worksheets: [] },
-          explanation: 'I created an Excel file for you.'
-        };
+        throw new Error('GPT returned invalid JSON for Excel structure');
       }
 
-      // Calculate cost
+      // Ensure we have worksheets
+      if (!parsed.worksheets && !parsed.data) {
+        throw new Error('GPT did not return a valid Excel structure');
+      }
+
       const inputTokens = completion.usage?.prompt_tokens || 0;
       const outputTokens = completion.usage?.completion_tokens || 0;
-      const cost = (inputTokens * 0.00003) + (outputTokens * 0.00006);
+      const cost = (inputTokens * 0.01 / 1000) + (outputTokens * 0.03 / 1000);
 
       logger.info(`Excel structure generated - Cost: $${cost.toFixed(4)}`);
 
       return {
-        structure: parsed.data || { worksheets: [] },
-        explanation: parsed.explanation || 'I created an Excel file for you.',
+        structure: parsed.worksheets ? { worksheets: parsed.worksheets } : parsed,
+        explanation: parsed.explanation || 'Excel file created with your data.',
         cost
       };
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Excel structure generation error:', error);
-      throw new Error('Failed to generate Excel structure');
+      throw error;
     }
   }
 }

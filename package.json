@@ -9,7 +9,12 @@
     "shared"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:desktop\" \"npm run dev:automation\"",
+    "dev": "./start-dev.sh",
+    "backend": "BACKEND_PORT=3001 node backend/src/server-simple.js",
+    "backend:ts": "npm run dev --workspace=backend",
+    "frontend": "cd desktop && npm start",
+    "test:auth": "node test-auth-flow.js",
+    "dev:full": "concurrently \"npm run backend\" \"npm run frontend\"",
     "dev:desktop": "npm run dev --workspace=desktop",
     "dev:backend": "npm run dev --workspace=backend",
     "dev:automation": "cd automation && python3 main.py",

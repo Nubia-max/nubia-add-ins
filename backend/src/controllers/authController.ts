@@ -42,11 +42,11 @@ export const register = async (req: Request, res: Response) => {
       data: {
         email,
         password: hashedPassword,
-        settings: {
+        settings: JSON.stringify({
           automationMode: 'visual',
           notifications: true,
           autoMinimize: false
-        }
+        })
       },
       select: {
         id: true,

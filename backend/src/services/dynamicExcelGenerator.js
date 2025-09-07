@@ -6,7 +6,10 @@ const { exec } = require('child_process');
 class DynamicExcelGenerator {
   constructor(openaiService) {
     this.openaiService = openaiService;
-    this.outputDir = `/Users/${process.env.USER}/Documents/Nubia`;
+    // Cross-platform output directory
+    this.outputDir = process.platform === 'win32' 
+      ? path.join(process.env.USERPROFILE || '', 'Documents', 'Nubia')
+      : path.join(process.env.HOME || `/Users/${process.env.USER}`, 'Documents', 'Nubia');
     this.ensureOutputDirectory();
   }
 
@@ -20,233 +23,318 @@ class DynamicExcelGenerator {
     console.log('🎯 Starting GPT-powered Excel generation for:', userInput.substring(0, 100));
     
     try {
-      // Step 1: Get GPT analysis and structure
+      // Get GPT's creative structure - no restrictions
       const gptStructure = await this.getCustomStructureFromGPT(userInput);
       
-      // Step 2: Create Excel workbook using ExcelJS
+      // Create Excel workbook
       const workbook = new ExcelJS.Workbook();
-      const filename = `Accounting_${userId}_${Date.now()}.xlsx`;
+      const filename = `Nubia_${userId}_${Date.now()}.xlsx`;
       const filepath = path.join(this.outputDir, filename);
       
-      // Step 3: Build worksheets from GPT structure
+      // Build worksheets from whatever GPT created
       await this.buildWorksheetsFromGPT(workbook, gptStructure);
       
-      // Step 4: Save workbook
+      // Save workbook
       await workbook.xlsx.writeFile(filepath);
       
-      // Step 5: Open in Excel
+      // Open in Excel
       await this.openExcelFile(filepath);
       
       console.log('✅ Excel workbook generated successfully:', filename);
+      
+      // Return flexible response based on what GPT created
+      const worksheetInfo = this.extractWorksheetInfo(gptStructure);
       
       return {
         success: true,
         filename,
         filepath,
-        structure: gptStructure.summary || 'GPT created a custom structure',
-        worksheets: (gptStructure.worksheets || gptStructure.sheets || [gptStructure]).map(ws => ({
-          name: ws.name || ws.title || 'Unnamed Sheet',
-          rowCount: (ws.data || ws.rows || []).length,
-          columnCount: (ws.columns || ws.headers || []).length
-        }))
+        structure: gptStructure.summary || gptStructure.description || 'Custom Excel structure created',
+        worksheets: worksheetInfo,
+        gptResponse: gptStructure // Include full GPT response for debugging
       };
       
     } catch (error) {
       console.error('❌ Excel generation failed:', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      throw error;
     }
   }
 
   async getCustomStructureFromGPT(userInput) {
-    const gptPrompt = `You are Nubia, a friendly and brilliant AI assistant who helps people organize their data into Excel spreadsheets. You have COMPLETE CREATIVE FREEDOM to design whatever makes most sense for each request.
+    const gptPrompt = `You are Nubia, an expert accountant and Excel specialist.
 
 USER REQUEST:
 ${userInput}
 
-Feel free to be conversational and creative! You can:
-- Create ANY type of spreadsheet that helps the user
-- Use whatever column names and structure make sense
-- Include helpful formulas, calculations, or charts
-- Add personality and explanations to your responses
-- Ask clarifying questions if helpful
-- Create multiple worksheets if beneficial
-- Design custom formats, colors, or styling
-- Include sample data that's relevant and useful
+You have COMPLETE FREEDOM to create ANY Excel structure that best serves this request:
+- Create unlimited worksheets with any names
+- Design any column structure
+- Include any formulas, calculations, pivot tables, charts
+- Use any data format or structure you think is best
+- Be creative and comprehensive
 
-You are NOT limited to financial/accounting formats. Create what's truly best for the user's needs - whether it's tracking movies, planning events, organizing recipes, managing projects, or anything else.
-
-If it's helpful, you can include both conversational text AND a JSON structure. Be creative, helpful, and personable!
-
-Here's a flexible JSON format you can use (but modify freely):
-{
-  "conversation": "Hi! I'd love to help you with that. Here's what I'm thinking...",
-  "summary": "Description of what I created and why it's perfect for you",
-  "worksheets": [
-    {
-      "name": "Whatever name fits your needs",
-      "columns": [
-        { "header": "Perfect column name", "key": "logical_key", "width": 20, "type": "text|number|currency|date|percentage" }
-      ],
-      "data": [
-        { "logical_key": "Relevant sample data" }
-      ],
-      "formulas": [
-        { "cell": "A10", "formula": "=SUM(A2:A9)", "description": "Helpful calculation" }
-      ]
-    }
-  ]
-}
-
-Be creative, conversational, and design exactly what the user needs!`;
+Return a JSON object with whatever structure makes most sense. You can use any property names and organization you want.`;
 
     try {
       const response = await this.openaiService.createCompletion({
-        model: 'gpt-4',
-        messages: [{ role: 'user', content: gptPrompt }],
-        temperature: 0.8,
-        max_tokens: 40000
+        model: 'gpt-4-turbo-preview',
+        messages: [
+          { 
+            role: 'system', 
+            content: 'Create comprehensive Excel structures with complete freedom. Return valid JSON in whatever format you think is best.'
+          },
+          { 
+            role: 'user', 
+            content: gptPrompt 
+          }
+        ],
+        temperature: 0.8, // Higher for creativity
+        max_tokens: 4000
       });
 
       const gptResponseText = response.choices[0].message.content.trim();
-      console.log('📊 GPT Response received, parsing JSON...');
-      console.log('🔍 RAW GPT RESPONSE:', JSON.stringify(gptResponseText));
+      console.log('📊 GPT Response received');
       
-      // Clean up response to ensure it's valid JSON
+      // Clean up response if wrapped in markdown
       let cleanedResponse = gptResponseText;
-      
-      // Handle markdown code blocks
       if (cleanedResponse.includes('```json')) {
         cleanedResponse = cleanedResponse.split('```json')[1].split('```')[0];
       } else if (cleanedResponse.includes('```')) {
         cleanedResponse = cleanedResponse.split('```')[1].split('```')[0];
       }
       
-      // Handle cases where GPT adds extra text after JSON
-      // Look for the JSON object boundaries
-      const jsonStart = cleanedResponse.indexOf('{');
-      const jsonEnd = cleanedResponse.lastIndexOf('}');
+      // Parse whatever structure GPT returns
+      const structure = JSON.parse(cleanedResponse);
       
-      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-        cleanedResponse = cleanedResponse.substring(jsonStart, jsonEnd + 1);
-      }
-      
-      const structure = JSON.parse(cleanedResponse.trim());
-      console.log('🔍 PARSED GPT RESPONSE:', JSON.stringify(structure, null, 2));
-      
-      // Accept whatever structure GPT provides - no validation restrictions
-      console.log('✅ GPT structure parsed successfully:', structure.summary || 'GPT created a custom structure');
+      console.log('✅ GPT structure parsed successfully');
+      console.log('🔍 DEBUG - Full GPT structure:', JSON.stringify(structure, null, 2));
       return structure;
       
     } catch (error) {
       console.error('❌ GPT parsing error:', error);
-      // Fallback to basic structure
-      return this.getFallbackStructure(userInput);
+      throw new Error(`Failed to generate Excel structure: ${error.message}`);
     }
-  }
-
-  getFallbackStructure(userInput) {
-    console.log('🔄 Using fallback accounting structure');
-    
-    const today = new Date().toISOString().split('T')[0];
-    
-    return {
-      summary: "Basic accounting journal with transactions from user input",
-      worksheets: [
-        {
-          name: "General Journal",
-          columns: [
-            { header: "Date", key: "date", width: 12 },
-            { header: "Account", key: "account", width: 25 },
-            { header: "Description", key: "description", width: 35 },
-            { header: "Ref", key: "ref", width: 8 },
-            { header: "Debit", key: "debit", width: 15 },
-            { header: "Credit", key: "credit", width: 15 }
-          ],
-          data: [
-            { date: today, account: "Transaction", description: userInput.substring(0, 100), ref: "1", debit: "", credit: "" }
-          ]
-        }
-      ]
-    };
   }
 
   async buildWorksheetsFromGPT(workbook, structure) {
-    // Handle any structure GPT provides - complete flexibility
-    const worksheets = structure.worksheets || structure.sheets || structure.tabs || [structure];
+    // Accept ANY property name GPT uses for worksheets
+    const worksheets = this.findWorksheets(structure);
+    
+    if (!worksheets || worksheets.length === 0) {
+      // If no array found, treat the entire structure as a single worksheet
+      await this.buildSingleWorksheet(workbook, structure);
+      return;
+    }
     
     for (const worksheetData of worksheets) {
-      const sheetName = worksheetData.name || worksheetData.title || `Sheet${worksheets.indexOf(worksheetData) + 1}`;
-      console.log(`📋 Creating worksheet: ${sheetName}`);
-      
-      const worksheet = workbook.addWorksheet(sheetName);
-      
-      // Set up columns - accept any column format GPT provides
-      if (worksheetData.columns) {
-        worksheet.columns = worksheetData.columns;
-      } else if (worksheetData.headers) {
-        // Alternative column format
-        worksheet.columns = worksheetData.headers.map((header, index) => ({
-          header: header,
-          key: `col${index + 1}`,
-          width: 15
-        }));
-      }
-      
-      // Add data - accept any data format
-      if (worksheetData.data && worksheetData.data.length > 0) {
-        worksheet.addRows(worksheetData.data);
-      } else if (worksheetData.rows) {
-        worksheet.addRows(worksheetData.rows);
-      }
-      
-      // Apply formulas if provided
-      if (worksheetData.formulas && Array.isArray(worksheetData.formulas)) {
-        worksheetData.formulas.forEach(formula => {
-          try {
-            worksheet.getCell(formula.cell).value = { formula: formula.formula };
-          } catch (error) {
-            console.warn(`⚠️ Formula error: ${error.message}`);
-          }
-        });
-      }
-      
-      // Apply any formatting GPT specified
-      this.applyDynamicFormattingFromGPT(worksheet, worksheetData);
+      await this.buildSingleWorksheet(workbook, worksheetData);
     }
   }
 
-  applyAdvancedFormatting(worksheet, worksheetData) {
-    // Header formatting
+  findWorksheets(structure) {
+    console.log('🔍 DEBUG - Finding worksheets in structure with keys:', Object.keys(structure));
+    
+    // Handle nested structures like ExcelWorkbook.Worksheets
+    if (structure.ExcelWorkbook && Array.isArray(structure.ExcelWorkbook.Worksheets)) {
+      console.log('✅ Found nested ExcelWorkbook.Worksheets with', structure.ExcelWorkbook.Worksheets.length, 'worksheets');
+      return structure.ExcelWorkbook.Worksheets;
+    }
+    
+    // Look for any array that might contain worksheets
+    const possibleKeys = [
+      'worksheets', 'Worksheets', 'sheets', 'Sheets', 'tabs', 'pages', 'workbooks',
+      'spreadsheets', 'documents', 'tables', 'data_sheets'
+    ];
+    
+    for (const key of possibleKeys) {
+      if (Array.isArray(structure[key])) {
+        console.log(`✅ Found worksheets in property '${key}' with ${structure[key].length} items`);
+        return structure[key];
+      }
+    }
+    
+    // Check if structure itself is an array
+    if (Array.isArray(structure)) {
+      console.log(`✅ Using entire structure as worksheet array with ${structure.length} items`);
+      return structure;
+    }
+    
+    console.log('⚠️ No worksheet array found');
+    return null;
+  }
+
+  async buildSingleWorksheet(workbook, worksheetData) {
+    // Flexible name extraction
+    const sheetName = this.extractSheetName(worksheetData);
+    console.log(`📋 Creating worksheet: ${sheetName}`);
+    
+    const worksheet = workbook.addWorksheet(sheetName);
+    
+    // Handle columns flexibly
+    const columns = this.extractColumns(worksheetData);
+    if (columns && columns.length > 0) {
+      worksheet.columns = columns.map((col, index) => ({
+        header: this.extractColumnHeader(col),
+        key: this.extractColumnKey(col, index),
+        width: this.extractColumnWidth(col)
+      }));
+    }
+    
+    // Handle data flexibly
+    const data = this.extractData(worksheetData);
+    if (data && data.length > 0) {
+      worksheet.addRows(data);
+    }
+    
+    // Apply formulas if any
+    this.applyFormulas(worksheet, worksheetData);
+    
+    // Apply formatting
+    this.applyFormatting(worksheet, worksheetData);
+    
+    // Apply any custom features GPT included
+    this.applyCustomFeatures(worksheet, worksheetData);
+  }
+
+  extractSheetName(worksheetData) {
+    return worksheetData.Name ||      // GPT uses capital Name
+           worksheetData.name || 
+           worksheetData.title || 
+           worksheetData.sheetName ||
+           worksheetData.label ||
+           worksheetData.worksheet_name ||
+           worksheetData.tab_name ||
+           'Sheet1';
+  }
+
+  extractColumns(worksheetData) {
+    return worksheetData.Columns ||   // GPT uses capital Columns
+           worksheetData.columns || 
+           worksheetData.headers || 
+           worksheetData.fields ||
+           worksheetData.column_headers ||
+           worksheetData.cols ||
+           null;
+  }
+
+  extractColumnHeader(col) {
+    if (typeof col === 'string') return col;
+    return col.Name ||     // GPT uses capital Name
+           col.header || 
+           col.name || 
+           col.title || 
+           col.label || 
+           'Column';
+  }
+
+  extractColumnKey(col, index) {
+    if (typeof col === 'string') {
+      return col.toLowerCase().replace(/\s+/g, '_');
+    }
+    return col.key || 
+           col.id || 
+           col.field || 
+           col.property ||
+           `col${index + 1}`;
+  }
+
+  extractColumnWidth(col) {
+    if (typeof col === 'object') {
+      return col.width || col.size || col.columnWidth || 15;
+    }
+    return 15;
+  }
+
+  extractData(worksheetData) {
+    console.log('🔍 DEBUG - Extracting data from worksheet:', Object.keys(worksheetData));
+    
+    // Try common data property names including GPT's format
+    const dataProperties = [
+      'Rows',        // GPT uses capital Rows
+      'data', 'rows', 'records', 'entries', 'values', 'content', 
+      'items', 'table_data', 'row_data', 'information', 'details'
+    ];
+    
+    for (const prop of dataProperties) {
+      if (worksheetData[prop] && Array.isArray(worksheetData[prop])) {
+        console.log(`✅ Found data in property '${prop}' with ${worksheetData[prop].length} items`);
+        return worksheetData[prop];
+      }
+    }
+    
+    // If no array found, check if the entire worksheetData is an array
+    if (Array.isArray(worksheetData)) {
+      console.log(`✅ Using entire worksheet as data array with ${worksheetData.length} items`);
+      return worksheetData;
+    }
+    
+    // Last resort: look for any array property
+    for (const [key, value] of Object.entries(worksheetData)) {
+      if (Array.isArray(value) && value.length > 0) {
+        console.log(`✅ Found array data in property '${key}' with ${value.length} items`);
+        return value;
+      }
+    }
+    
+    console.log('⚠️ No data array found, returning empty array');
+    return [];
+  }
+
+  applyFormulas(worksheet, worksheetData) {
+    // Look for formulas in various possible locations
+    const formulas = worksheetData.formulas || 
+                    worksheetData.calculations ||
+                    worksheetData.computed_cells ||
+                    [];
+    
+    if (Array.isArray(formulas)) {
+      formulas.forEach(formula => {
+        try {
+          const cell = formula.cell || formula.position || formula.location;
+          const formulaText = formula.formula || formula.expression || formula.calculation;
+          if (cell && formulaText) {
+            worksheet.getCell(cell).value = { formula: formulaText };
+          }
+        } catch (error) {
+          console.warn(`⚠️ Formula error: ${error.message}`);
+        }
+      });
+    }
+  }
+
+  applyFormatting(worksheet, worksheetData) {
+    // Apply header formatting
     const headerRow = worksheet.getRow(1);
     headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
     headerRow.fill = {
       type: 'pattern',
       pattern: 'solid',
-      fgColor: { argb: '366092' }
+      fgColor: { argb: '4472C4' }
     };
     headerRow.alignment = { horizontal: 'center' };
     
-    // Auto-fit columns
-    worksheet.columns.forEach(column => {
-      if (column.width) {
-        column.width = column.width;
-      }
-    });
+    // Look for formatting instructions from GPT
+    const formatting = worksheetData.formatting || 
+                      worksheetData.format ||
+                      worksheetData.styles ||
+                      {};
     
-    // Format number columns (Debit/Credit/Amount)
-    const numberColumns = ['debit', 'credit', 'amount'];
-    worksheet.columns.forEach((column, index) => {
-      if (numberColumns.some(nc => column.key && column.key.toLowerCase().includes(nc))) {
-        const columnLetter = String.fromCharCode(65 + index);
-        worksheet.getColumn(columnLetter).numFmt = '#,##0.00';
-      }
-    });
+    // Apply currency formatting
+    const currencyColumns = formatting.currencyColumns || 
+                          formatting.currency ||
+                          formatting.money_columns ||
+                          [];
+    this.applyCurrencyFormat(worksheet, currencyColumns);
     
-    // Add borders
-    worksheet.eachRow((row, rowNumber) => {
+    // Apply date formatting
+    const dateColumns = formatting.dateColumns || 
+                       formatting.dates ||
+                       formatting.date_columns ||
+                       [];
+    this.applyDateFormat(worksheet, dateColumns);
+    
+    // Apply borders
+    worksheet.eachRow((row) => {
       row.eachCell((cell) => {
         cell.border = {
           top: { style: 'thin' },
@@ -257,299 +345,73 @@ Be creative, conversational, and design exactly what the user needs!`;
       });
     });
     
-    // Freeze header row
-    worksheet.views = [{
-      state: 'frozen',
-      ySplit: 1
-    }];
+    // Freeze header
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
   }
 
-  applyDynamicFormattingFromGPT(worksheet, worksheetData) {
-    // Accept any formatting structure GPT provides - no restrictions
-    const formatting = worksheetData.formatting || worksheetData.format || worksheetData.styles || {};
-    
-    // Apply header formatting if specified
-    if (formatting.headerStyle || formatting.header) {
-      const headerStyle = formatting.headerStyle || formatting.header;
-      const headerRow = worksheet.getRow(1);
-      headerRow.eachCell((cell) => {
-        if (headerStyle.font) cell.font = headerStyle.font;
-        if (headerStyle.fill) cell.fill = headerStyle.fill;
-        if (headerStyle.alignment) cell.alignment = headerStyle.alignment;
-        if (headerStyle.border) cell.border = headerStyle.border;
-        if (headerStyle.backgroundColor) {
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: headerStyle.backgroundColor.replace('#', '') }
-          };
-        }
-        if (headerStyle.fontColor) {
-          cell.font = { ...cell.font, color: { argb: headerStyle.fontColor.replace('#', '') } };
-        }
-      });
-    } else {
-      // Default header formatting if none specified
-      this.applyAdvancedFormatting(worksheet, worksheetData);
-      return;
-    }
-
-    // Apply column-specific formatting
-    if (formatting.currencyColumns || formatting.currency) {
-      const currencyColumns = formatting.currencyColumns || formatting.currency || [];
-      currencyColumns.forEach(columnKey => {
-        const columnIndex = worksheetData.columns?.findIndex(col => col.key === columnKey);
-        if (columnIndex !== -1) {
-          const columnLetter = String.fromCharCode(65 + columnIndex);
-          worksheet.getColumn(columnLetter).numFmt = '$#,##0.00';
-        }
-      });
-    }
-
-    if (formatting.dateColumns || formatting.dates) {
-      const dateColumns = formatting.dateColumns || formatting.dates || [];
-      dateColumns.forEach(columnKey => {
-        const columnIndex = worksheetData.columns?.findIndex(col => col.key === columnKey);
-        if (columnIndex !== -1) {
-          const columnLetter = String.fromCharCode(65 + columnIndex);
-          worksheet.getColumn(columnLetter).numFmt = 'mm/dd/yyyy';
-        }
-      });
-    }
-
-    if (formatting.numberColumns || formatting.numbers) {
-      const numberColumns = formatting.numberColumns || formatting.numbers || [];
-      numberColumns.forEach(columnKey => {
-        const columnIndex = worksheetData.columns?.findIndex(col => col.key === columnKey);
-        if (columnIndex !== -1) {
-          const columnLetter = String.fromCharCode(65 + columnIndex);
-          worksheet.getColumn(columnLetter).numFmt = '#,##0.00';
-        }
-      });
-    }
-
-    // Apply any custom cell formatting
-    if (formatting.customStyles || formatting.cells) {
-      const customStyles = formatting.customStyles || formatting.cells || {};
-      Object.entries(customStyles).forEach(([cellRange, style]) => {
-        try {
-          const cell = worksheet.getCell(cellRange);
-          Object.assign(cell, style);
-        } catch (error) {
-          console.warn(`⚠️ Custom style error for ${cellRange}:`, error.message);
-        }
-      });
-    }
-
-    // Add borders to all cells by default
-    worksheet.eachRow((row) => {
-      row.eachCell((cell) => {
-        if (!cell.border) {
-          cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' }
-          };
-        }
-      });
-    });
-  }
-
-  async createExcelFromGPT(gptStructure, options = {}) {
-    console.log('📊 Creating dynamic Excel file from GPT structure...');
-    
-    try {
-      const workbook = new ExcelJS.Workbook();
-      
-      // Set workbook properties
-      workbook.creator = 'Nubia AI';
-      workbook.lastModifiedBy = 'Nubia AI';
-      workbook.created = new Date();
-      workbook.modified = new Date();
-      workbook.lastPrinted = new Date();
-
-      // Process each worksheet with complete freedom
-      if (gptStructure.worksheets && Array.isArray(gptStructure.worksheets)) {
-        for (const sheetData of gptStructure.worksheets) {
-          await this.createDynamicWorksheet(workbook, sheetData);
-        }
-      }
-
-      // Generate unique filename
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = options.filename || `nubia-financial-${timestamp}.xlsx`;
-      const filepath = path.join(this.outputDir, filename);
-
-      // Save the file
-      await workbook.xlsx.writeFile(filepath);
-      console.log('✅ Excel file created:', filepath);
-
-      // Open the file if requested
-      if (options.autoOpen !== false) {
-        await this.openExcelFile(filepath);
-      }
-
-      return {
-        success: true,
-        filepath,
-        filename,
-        worksheetCount: gptStructure.worksheets?.length || 0,
-        message: `Successfully created ${gptStructure.worksheets?.length || 0} worksheets`
-      };
-
-    } catch (error) {
-      console.error('❌ Excel generation error:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  async createDynamicWorksheet(workbook, sheetData) {
-    console.log(`📋 Creating worksheet: ${sheetData.name}`);
-    
-    const worksheet = workbook.addWorksheet(sheetData.name);
-
-    // Set up columns based on GPT's decision
-    if (sheetData.columns && Array.isArray(sheetData.columns)) {
-      const columns = sheetData.columns.map(col => ({
-        header: col.header,
-        key: col.key,
-        width: col.width || 15,
-        style: this.getColumnStyle(col.type)
-      }));
-      worksheet.columns = columns;
-
-      // Apply header formatting
-      this.formatHeaders(worksheet, sheetData.formatting?.headerStyle);
-    }
-
-    // Add data rows
-    if (sheetData.data && Array.isArray(sheetData.data)) {
-      sheetData.data.forEach(row => {
-        worksheet.addRow(row);
-      });
-    }
-
-    // Apply formulas
-    if (sheetData.formulas && Array.isArray(sheetData.formulas)) {
-      sheetData.formulas.forEach(formula => {
-        try {
-          worksheet.getCell(formula.cell).value = { formula: formula.formula };
-          if (formula.description) {
-            worksheet.getCell(formula.cell).note = formula.description;
-          }
-        } catch (formulaError) {
-          console.warn(`⚠️ Formula error in ${formula.cell}:`, formulaError.message);
-        }
-      });
-    }
-
-    // Apply formatting
-    if (sheetData.formatting) {
-      await this.applyDynamicFormatting(worksheet, sheetData.formatting, sheetData.columns);
-    }
-
-    // Auto-fit columns
-    worksheet.columns.forEach(column => {
-      if (column.eachCell) {
-        let maxLength = 0;
-        column.eachCell({ includeEmpty: true }, (cell) => {
-          const length = cell.value ? cell.value.toString().length : 10;
-          if (length > maxLength) {
-            maxLength = length;
-          }
-        });
-        column.width = Math.min(Math.max(maxLength + 2, 10), 50);
+  applyCurrencyFormat(worksheet, currencyColumns) {
+    currencyColumns.forEach(columnKey => {
+      const column = worksheet.columns.find(col => col.key === columnKey);
+      if (column) {
+        const columnIndex = worksheet.columns.indexOf(column) + 1;
+        const columnLetter = this.getColumnLetter(columnIndex);
+        worksheet.getColumn(columnLetter).numFmt = '$#,##0.00';
       }
     });
-
-    return worksheet;
   }
 
-  getColumnStyle(type) {
-    switch (type) {
-      case 'currency':
-        return { numFmt: '$#,##0.00' };
-      case 'date':
-        return { numFmt: 'mm/dd/yyyy' };
-      case 'number':
-        return { numFmt: '#,##0.00' };
-      case 'percentage':
-        return { numFmt: '0.00%' };
-      default:
-        return {};
-    }
-  }
-
-  formatHeaders(worksheet, headerStyle) {
-    if (!headerStyle) {
-      // Default header formatting
-      headerStyle = {
-        font: { bold: true, color: { argb: 'FFFFFF' } },
-        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: '4472C4' } },
-        alignment: { horizontal: 'center' },
-        border: {
-          top: { style: 'thin' },
-          left: { style: 'thin' },
-          bottom: { style: 'thin' },
-          right: { style: 'thin' }
-        }
-      };
-    }
-
-    const headerRow = worksheet.getRow(1);
-    headerRow.eachCell((cell) => {
-      Object.assign(cell, headerStyle);
+  applyDateFormat(worksheet, dateColumns) {
+    dateColumns.forEach(columnKey => {
+      const column = worksheet.columns.find(col => col.key === columnKey);
+      if (column) {
+        const columnIndex = worksheet.columns.indexOf(column) + 1;
+        const columnLetter = this.getColumnLetter(columnIndex);
+        worksheet.getColumn(columnLetter).numFmt = 'mm/dd/yyyy';
+      }
     });
   }
 
-  async applyDynamicFormatting(worksheet, formatting, columns) {
-    // Format currency columns
-    if (formatting.currencyColumns && Array.isArray(formatting.currencyColumns)) {
-      formatting.currencyColumns.forEach(columnKey => {
-        const column = columns.find(col => col.key === columnKey);
-        if (column) {
-          const columnLetter = this.getColumnLetter(columns.indexOf(column) + 1);
-          worksheet.getColumn(columnLetter).numFmt = '$#,##0.00';
-        }
-      });
+  applyCustomFeatures(worksheet, worksheetData) {
+    // Apply any other features GPT might have included
+    
+    // Conditional formatting
+    if (worksheetData.conditional_formatting) {
+      // Apply conditional formatting rules
     }
+    
+    // Data validation
+    if (worksheetData.validation || worksheetData.data_validation) {
+      // Apply data validation rules
+    }
+    
+    // Charts (if GPT specified any)
+    if (worksheetData.charts || worksheetData.graphs) {
+      // Note: ExcelJS has limited chart support
+      console.log('📊 Charts specified but not fully supported in ExcelJS');
+    }
+    
+    // Pivot tables (if GPT specified any)
+    if (worksheetData.pivot_tables || worksheetData.pivots) {
+      console.log('📊 Pivot tables specified but not fully supported in ExcelJS');
+    }
+  }
 
-    // Format date columns
-    if (formatting.dateColumns && Array.isArray(formatting.dateColumns)) {
-      formatting.dateColumns.forEach(columnKey => {
-        const column = columns.find(col => col.key === columnKey);
-        if (column) {
-          const columnLetter = this.getColumnLetter(columns.indexOf(column) + 1);
-          worksheet.getColumn(columnLetter).numFmt = 'mm/dd/yyyy';
-        }
-      });
+  extractWorksheetInfo(structure) {
+    const worksheets = this.findWorksheets(structure);
+    
+    if (!worksheets) {
+      return [{
+        name: this.extractSheetName(structure),
+        rowCount: this.extractData(structure).length,
+        columnCount: this.extractColumns(structure)?.length || 0
+      }];
     }
-
-    // Apply conditional formatting if specified
-    if (formatting.conditionalFormatting) {
-      formatting.conditionalFormatting.forEach(rule => {
-        try {
-          worksheet.addConditionalFormatting(rule);
-        } catch (error) {
-          console.warn('⚠️ Conditional formatting error:', error.message);
-        }
-      });
-    }
-
-    // Apply custom cell styles
-    if (formatting.customStyles) {
-      Object.entries(formatting.customStyles).forEach(([cellRange, style]) => {
-        try {
-          worksheet.getCell(cellRange).style = style;
-        } catch (error) {
-          console.warn(`⚠️ Custom style error for ${cellRange}:`, error.message);
-        }
-      });
-    }
+    
+    return worksheets.map(ws => ({
+      name: this.extractSheetName(ws),
+      rowCount: this.extractData(ws).length,
+      columnCount: this.extractColumns(ws)?.length || 0
+    }));
   }
 
   getColumnLetter(columnNumber) {
@@ -565,21 +427,18 @@ Be creative, conversational, and design exactly what the user needs!`;
   async openExcelFile(filepath) {
     console.log('🚀 Opening Excel file:', filepath);
     
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       let command;
       
       if (process.platform === 'darwin') {
-        // macOS
         command = `open -a "Microsoft Excel" "${filepath}"`;
       } else if (process.platform === 'win32') {
-        // Windows
         command = `start excel "${filepath}"`;
       } else {
-        // Linux - try common spreadsheet applications
         command = `xdg-open "${filepath}"`;
       }
-
-      exec(command, (error, stdout, stderr) => {
+      
+      exec(command, (error) => {
         if (error) {
           console.warn('⚠️ Could not auto-open Excel file:', error.message);
           resolve({ opened: false, error: error.message });
@@ -589,94 +448,6 @@ Be creative, conversational, and design exactly what the user needs!`;
         }
       });
     });
-  }
-
-  // Advanced features for complex documents
-  async addChartsAndPivots(worksheet, sheetData) {
-    if (sheetData.charts && Array.isArray(sheetData.charts)) {
-      sheetData.charts.forEach(chartData => {
-        try {
-          // Create chart based on GPT specifications
-          const chart = worksheet.addChart(chartData.type, {
-            name: chartData.name,
-            title: chartData.title,
-            categories: chartData.categories,
-            values: chartData.values
-          });
-          
-          chart.setPosition(chartData.position?.row || 1, chartData.position?.col || 6);
-          chart.setSize(chartData.size?.width || 400, chartData.size?.height || 300);
-        } catch (chartError) {
-          console.warn('⚠️ Chart creation error:', chartError.message);
-        }
-      });
-    }
-  }
-
-  // Generate multiple file formats
-  async exportToMultipleFormats(gptStructure, baseFilename) {
-    const formats = ['xlsx', 'csv', 'pdf'];
-    const results = {};
-
-    for (const format of formats) {
-      try {
-        switch (format) {
-          case 'xlsx':
-            results[format] = await this.createExcelFromGPT(gptStructure, { 
-              filename: `${baseFilename}.xlsx`,
-              autoOpen: false 
-            });
-            break;
-          case 'csv':
-            results[format] = await this.exportToCSV(gptStructure, `${baseFilename}.csv`);
-            break;
-          case 'pdf':
-            // PDF export would require additional libraries
-            results[format] = { success: false, message: 'PDF export not implemented yet' };
-            break;
-        }
-      } catch (error) {
-        results[format] = { success: false, error: error.message };
-      }
-    }
-
-    return results;
-  }
-
-  async exportToCSV(gptStructure, filename) {
-    // Simple CSV export for first worksheet
-    if (!gptStructure.worksheets || gptStructure.worksheets.length === 0) {
-      return { success: false, error: 'No worksheets to export' };
-    }
-
-    const firstSheet = gptStructure.worksheets[0];
-    const csvPath = path.join(this.outputDir, filename);
-    
-    let csvContent = '';
-    
-    // Headers
-    if (firstSheet.columns) {
-      csvContent += firstSheet.columns.map(col => `"${col.header}"`).join(',') + '\n';
-    }
-    
-    // Data rows
-    if (firstSheet.data) {
-      firstSheet.data.forEach(row => {
-        const values = firstSheet.columns.map(col => {
-          const value = row[col.key] || '';
-          return `"${value.toString().replace(/"/g, '""')}"`;
-        });
-        csvContent += values.join(',') + '\n';
-      });
-    }
-
-    fs.writeFileSync(csvPath, csvContent);
-    
-    return {
-      success: true,
-      filepath: csvPath,
-      message: 'CSV exported successfully'
-    };
   }
 }
 

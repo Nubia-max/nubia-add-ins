@@ -6,7 +6,7 @@ class CloudApiService {
   constructor() {
     this.baseUrl = process.env.NODE_ENV === 'production' 
       ? 'https://api.nubia.ai' 
-      : 'http://localhost:5001';
+      : 'http://localhost:3001';
     this.token = null;
     this.initializeToken();
   }
@@ -91,7 +91,7 @@ class CloudApiService {
 
   // Authentication
   async register(email: string, password: string) {
-    const data = await this.request('/auth/register', {
+    const data = await this.request('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
@@ -100,7 +100,7 @@ class CloudApiService {
   }
 
   async login(email: string, password: string) {
-    const data = await this.request('/auth/login', {
+    const data = await this.request('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
@@ -113,34 +113,34 @@ class CloudApiService {
   }
 
   async getProfile() {
-    return this.request('/auth/me');
+    return this.request('/api/auth/me');
   }
 
   // Subscription Management
   async getSubscription() {
-    return this.request('/subscription/current');
+    return this.request('/api/subscription/current');
   }
 
   async getSubscriptionTiers() {
-    return this.request('/subscription/tiers');
+    return this.request('/api/subscription/tiers');
   }
 
   async createSubscription(tier: string) {
-    return this.request('/subscription/create', {
+    return this.request('/api/subscription/create', {
       method: 'POST',
       body: JSON.stringify({ tier }),
     });
   }
 
   async updateSubscription(tier: string) {
-    return this.request('/subscription/update', {
+    return this.request('/api/subscription/update', {
       method: 'PUT',
       body: JSON.stringify({ tier }),
     });
   }
 
   async cancelSubscription(cancelAtPeriodEnd = true) {
-    return this.request('/subscription/cancel', {
+    return this.request('/api/subscription/cancel', {
       method: 'POST',
       body: JSON.stringify({ cancelAtPeriodEnd }),
     });
@@ -148,7 +148,7 @@ class CloudApiService {
 
   // GPT-Driven Financial Document Generation
   async generateFinancialDocument(command: string, context: any = {}, options: any = {}) {
-    return this.request('/financial/generate', {
+    return this.request('/api/financial/generate', {
       method: 'POST',
       body: JSON.stringify({ command, context, options }),
     });
@@ -172,18 +172,18 @@ class CloudApiService {
 
   // Excel Automation (Legacy - kept for compatibility)
   async processAutomation(command: string, context: any = {}, options: any = {}) {
-    return this.request('/automation/process', {
+    return this.request('/api/automation/process', {
       method: 'POST',
       body: JSON.stringify({ command, context, options }),
     });
   }
 
   async getAutomationHistory(limit = 50, offset = 0) {
-    return this.request(`/automation/history?limit=${limit}&offset=${offset}`);
+    return this.request(`/api/automation/history?limit=${limit}&offset=${offset}`);
   }
 
   async getUsageAnalytics(days = 30) {
-    return this.request(`/automation/analytics?days=${days}`);
+    return this.request(`/api/automation/analytics?days=${days}`);
   }
 
   // Templates
@@ -194,7 +194,7 @@ class CloudApiService {
     category?: string;
     isPublic?: boolean;
   }) {
-    return this.request('/automation/templates', {
+    return this.request('/api/automation/templates', {
       method: 'POST',
       body: JSON.stringify(template),
     });
@@ -205,11 +205,11 @@ class CloudApiService {
     if (category) params.append('category', category);
     if (isPublic !== undefined) params.append('isPublic', String(isPublic));
     
-    return this.request(`/automation/templates?${params}`);
+    return this.request(`/api/automation/templates?${params}`);
   }
 
   async useAutomationTemplate(templateId: string) {
-    return this.request(`/automation/templates/${templateId}/use`, {
+    return this.request(`/api/automation/templates/${templateId}/use`, {
       method: 'POST',
     });
   }
@@ -217,7 +217,7 @@ class CloudApiService {
   // Health check
   async healthCheck() {
     try {
-      const response = await fetch(`${this.baseUrl}/health`);
+      const response = await fetch(`${this.baseUrl}/api/health`);
       return response.ok;
     } catch (error) {
       return false;

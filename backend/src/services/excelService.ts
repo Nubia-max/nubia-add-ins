@@ -7,6 +7,10 @@ export class ExcelService {
   private openai: OpenAI;
 
   constructor() {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is required');
+    }
+    
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
@@ -45,27 +49,35 @@ export class ExcelService {
     
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-4",
+        model: "gpt-4-turbo-preview",
         messages: [{
           role: "system",
-          content: `You are a financial Excel automation expert. Convert transaction data into structured Excel format.
-          Return a JSON object with:
-          - columns: Array of column definitions [{name, type, width}]
-          - rows: Array of data rows
-          - formulas: Array of Excel formulas to apply
-          - formatting: Formatting rules for cells
-          - summary: Brief summary of the data processed`
+          content: `You are Nubia, an expert financial analyst and accountant with COMPLETE FREEDOM to design optimal Excel structures.
+
+Create whatever makes most sense for the user's request:
+- Unlimited worksheets (Journal, Ledgers, Cash Book, Bank Book, Trial Balance, P&L, Balance Sheet, or anything else)
+- Any column structure that makes accounting or business sense
+- Include formulas, calculations, pivot tables, charts - whatever is needed
+- Handle any type of data - financial, personal, creative, anything
+
+You decide the best structure. Be creative and comprehensive.`
         }, {
           role: "user",
           content: transactions
         }],
-        temperature: 0.3,
+        temperature: 0.7,
+        max_tokens: 4000,
         response_format: { type: "json_object" }
       });
 
       const executionTime = Date.now() - startTime;
       const tokensUsed = completion.usage?.total_tokens || 0;
       const result = JSON.parse(completion.choices[0].message.content || '{}');
+
+      // Validate that GPT created something
+      if (!result.worksheets && !result.sheets && !result.data) {
+        throw new Error('GPT failed to generate Excel structure');
+      }
 
       await prisma.usageRecord.create({
         data: {
@@ -136,19 +148,19 @@ export class ExcelService {
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-4",
+        model: "gpt-4-turbo-preview",
         messages: [{
           role: "system",
-          content: `You are an Excel formula expert. Generate Excel formulas based on user requirements.
-          Return a JSON object with:
-          - formulas: Array of {cell, formula, description}
-          - explanation: Step-by-step explanation
-          - alternatives: Alternative approaches if applicable`
+          content: `You are an Excel expert with complete freedom to create any formulas, calculations, or structures needed.
+
+Create whatever formulas and structures make most sense for the request.
+Be creative and comprehensive. You can suggest entire worksheet structures if beneficial.`
         }, {
           role: "user",
           content: description
         }],
-        temperature: 0.3,
+        temperature: 0.7,
+        max_tokens: 2000,
         response_format: { type: "json_object" }
       });
 

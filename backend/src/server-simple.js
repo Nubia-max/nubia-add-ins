@@ -17,7 +17,28 @@ const excelGenerator = new DynamicExcelGenerator(llmService);
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:3000', 'file://*'],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or Postman)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      'http://localhost:3000',  // Web frontend
+      'http://localhost:3001',  // Backend itself
+      'http://localhost:3002',  // Alternative frontend port
+      'file://'                 // Electron app
+    ];
+    
+    // Check if origin starts with any allowed origin
+    const isAllowed = allowedOrigins.some(allowed => 
+      origin.startsWith(allowed)
+    );
+    
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -29,7 +50,7 @@ let users = [];
 let subscriptions = [];
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
@@ -38,7 +59,7 @@ app.get('/health', (req, res) => {
 });
 
 // Auth routes
-app.post('/auth/register', async (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password } = req.body;
     
@@ -90,7 +111,7 @@ app.post('/auth/register', async (req, res) => {
   }
 });
 
-app.post('/auth/login', async (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     
@@ -142,12 +163,12 @@ const authMiddleware = (req, res, next) => {
   }
 };
 
-app.get('/auth/me', authMiddleware, (req, res) => {
+app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json(req.user);
 });
 
 // Subscription routes
-app.get('/subscription/current', authMiddleware, (req, res) => {
+app.get('/api/subscription/current', authMiddleware, (req, res) => {
   const subscription = subscriptions.find(s => s.userId === req.user.id);
   if (!subscription) {
     // Create trial subscription if none exists
@@ -166,7 +187,7 @@ app.get('/subscription/current', authMiddleware, (req, res) => {
   res.json(subscription);
 });
 
-app.get('/subscription/tiers', (req, res) => {
+app.get('/api/subscription/tiers', (req, res) => {
   res.json({
     TRIAL: {
       tier: 'TRIAL',
@@ -204,7 +225,7 @@ app.get('/subscription/tiers', (req, res) => {
 });
 
 // New GPT-driven financial document generation
-app.post('/financial/generate', authMiddleware, async (req, res) => {
+app.post('/api/financial/generate', authMiddleware, async (req, res) => {
   try {
     const { command, context, options } = req.body;
     
@@ -242,9 +263,9 @@ app.post('/financial/generate', authMiddleware, async (req, res) => {
     }
 
     // Generate Excel file
-    const excelResult = await excelGenerator.createExcelFromGPT(
-      gptResult.structure,
-      options
+    const excelResult = await excelGenerator.generateAccountingWorkbook(
+      command, // Pass the original command instead of structure
+      req.user.id
     );
 
     // Increment usage counter on success
@@ -274,7 +295,7 @@ app.post('/financial/generate', authMiddleware, async (req, res) => {
 });
 
 // Automation routes (legacy - kept for compatibility)
-app.post('/automation/process', authMiddleware, (req, res) => {
+app.post('/api/automation/process', authMiddleware, (req, res) => {
   const { command, context, options } = req.body;
   
   if (!command) {
@@ -312,7 +333,7 @@ app.post('/automation/process', authMiddleware, (req, res) => {
   });
 });
 
-app.get('/automation/analytics', authMiddleware, (req, res) => {
+app.get('/api/automation/analytics', authMiddleware, (req, res) => {
   const subscription = subscriptions.find(s => s.userId === req.user.id);
   res.json({
     analytics: {
@@ -362,24 +383,20 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       messages: [
         {
           role: 'system',
-          content: `You are Nubia, a friendly and intelligent Excel automation assistant.
+          content: `You are Nubia, a friendly AI that creates Excel workbooks.
 
-Your job is to respond conversationally to user messages. When users give you transactions, data, or ask you to create Excel files, be enthusiastic and tell them you'll create their Excel files.
+CAPABILITIES:
+- You can create 1-50+ worksheets in a single workbook
+- Each worksheet can have completely different structures
+- You can include formulas, charts, pivot tables, anything Excel supports
+- You decide what's best for each request
 
-NEVER give instructions or steps to users.
-ALWAYS say you'll handle the Excel creation for them.
-
-Examples:
-User: "Record these transactions: June 1 started business with 10,000"
-You: "Perfect! I'll create your accounting workbooks with those transactions recorded."
-
-User: "Hi, how are you?"
-You: "Hello! I'm doing great and ready to help you with your Excel automation needs!"
-
-User: "Create a budget tracker"
-You: "I'll create a budget tracker for you right now!"
-
-Be conversational, helpful, and never show technical details.`
+IMPORTANT:
+- Never give manual instructions ("Step 1: Open Excel")
+- Always speak as if you're creating the file ("I'll create that for you")
+- Be conversational AND provide the Excel structure
+- If the user asks for something you can't do, politely explain why
+You have COMPLETE FREEDOM to create whatever makes sense.`
         },
         {
           role: 'user',
@@ -435,33 +452,16 @@ NO if the user is:
           messages: [
             {
               role: 'system',
-              content: `Parse the user's request and return ONLY a valid JSON object for creating Excel files.
-
-Return format:
-{
-  "summary": "Brief description of what was created",
-  "worksheets": [
-    {
-      "name": "Sheet Name",
-      "columns": [
-        {"header": "Column Name", "key": "key_name", "width": 20}
-      ],
-      "data": [
-        {"key_name": "actual data value"}
-      ]
-    }
-  ]
-}
-
-Extract all transactions, data points, and structure from the user message. Include actual data, not examples.`
-            },
+              content: `Create Excel structure for accounting. Extract ALL transactions from user message.
+Analyze the user's message and extract all transactions. Create a comprehensive Excel structure with the actual transaction data populated in the worksheets. Return JSON with real data, not placeholders.`
+            },            
             {
               role: 'user',
               content: message
             }
           ],
           temperature: 0.3,
-          max_tokens: 2000
+          max_tokens: 4000
         });
         
         const excelDataStr = excelDataResponse.choices[0].message.content.trim();
@@ -476,7 +476,7 @@ Extract all transactions, data points, and structure from the user message. Incl
         const excelStructure = JSON.parse(cleanedJson.trim());
         
         // Create Excel file in background
-        const result = await excelGenerator.createExcelFromGPT(excelStructure, { autoOpen: true });
+        const result = await excelGenerator.generateAccountingWorkbook(message, req.user.id);
         
         // Increment usage counter on success
         if (subscription && result.success) {
@@ -526,6 +526,7 @@ Extract all transactions, data points, and structure from the user message. Incl
 
 app.listen(PORT, () => {
   console.log(`🚀 Nubia SaaS Backend running on port ${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
   console.log(`💬 Universal Chat API: /api/chat`);
+  console.log(`🔐 Auth endpoints: /api/auth/login, /api/auth/register`);
 });

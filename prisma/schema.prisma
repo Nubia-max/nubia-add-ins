@@ -11,7 +11,7 @@ model User {
   id          String   @id @default(cuid())
   email       String   @unique
   password    String
-  settings    String?
+  settings    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
@@ -46,8 +46,8 @@ model Automation {
   id              String   @id @default(cuid())
   userId          String
   command         String
-  context         String?
-  result          String?
+  context         Json?
+  result          Json?
   status          String
   tokensUsed      Int?
   executionTime   Int?
@@ -62,7 +62,7 @@ model Automation {
 model ChatSession {
   id          String   @id @default(cuid())
   userId      String
-  messages    String
+  messages    Json
   tokensUsed  Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -90,7 +90,7 @@ model Template {
   id          String   @id @default(cuid())
   name        String
   description String?
-  commands    String
+  commands    Json
   category    String?
   isPublic    Boolean  @default(false)
   usageCount  Int      @default(0)

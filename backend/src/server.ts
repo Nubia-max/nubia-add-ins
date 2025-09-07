@@ -9,8 +9,8 @@ import dotenv from 'dotenv';
 import { authRoutes } from './routes/auth';
 import { chatRoutes } from './routes/chat';
 import { subscriptionRoutes } from './routes/subscription';
-import { automationRoutes } from './routes/automation';
-import excelRoutes from './routes/excel';
+// import { automationRoutes } from './routes/automation';
+// import excelRoutes from './routes/excel';
 import { errorHandler } from './middleware/errorHandler';
 import { setupSocketHandlers } from './utils/socket';
 import { logger } from './utils/logger';
@@ -26,19 +26,19 @@ const io = new Server(server, {
   }
 });
 
-const PORT = process.env.BACKEND_PORT || 5000;
+const PORT = process.env.BACKEND_PORT || 3001;
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: 'Too many requests from this IP'
 });
 
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+  origin: ["http://localhost:3000", "http://localhost:3001"], // Fixed: Allow frontend origin
   credentials: true
 }));
 app.use(limiter);
@@ -52,7 +52,7 @@ app.use((req, res, next) => {
 });
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {  // Added /api prefix
   res.status(200).json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
@@ -60,12 +60,12 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API Routes
-app.use('/auth', authRoutes);
-app.use('/chat', chatRoutes);
-app.use('/subscription', subscriptionRoutes);
-app.use('/automation', automationRoutes);
-app.use('/api/excel', excelRoutes);
+// API Routes - ALL with /api prefix for consistency
+app.use('/api/auth', authRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/subscription', subscriptionRoutes);
+// app.use('/api/automation', automationRoutes);
+// app.use('/api/excel', excelRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -96,8 +96,9 @@ process.on('SIGINT', () => {
 });
 
 server.listen(PORT, () => {
-  logger.info(`Server running on port ${PORT}`);
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`🚀 Server running on http://localhost:${PORT}`);
+  logger.info(`📡 API available at http://localhost:${PORT}/api`);
+  logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 export { app, server, io };
