@@ -32,7 +32,55 @@ interface ExcelResult {
   }>;
 }
 
-// Universal chat endpoint - Complete GPT freedom
+interface ExcelStructure {
+  worksheets?: Array<any>;
+  commands?: Array<any>;
+  [key: string]: any;
+}
+
+interface ExcelCommands {
+  commands: Array<any>;
+}
+
+// Helper function to clean and parse potentially malformed JSON
+function cleanAndParseJSON(jsonString: string): any {
+  try {
+    // First attempt - direct parse
+    return JSON.parse(jsonString);
+  } catch (error) {
+    // Clean common JSON issues
+    let cleaned = jsonString
+      .replace(/,\s*([}\]])/g, '$1')  // Remove trailing commas
+      .replace(/,\s*,/g, ',')          // Remove double commas
+      .replace(/\n\s*\n/g, '\n')       // Remove extra blank lines
+      .replace(/\/\/.*$/gm, '')        // Remove comments
+      .replace(/\/\*[\s\S]*?\*\//g, '') // Remove multi-line comments
+      .trim();
+    
+    try {
+      return JSON.parse(cleaned);
+    } catch (secondError) {
+      // More aggressive cleaning
+      cleaned = cleaned
+        .replace(/,\s*}/g, '}')
+        .replace(/,\s*]/g, ']')
+        .replace(/:\s*,/g, ': null,')
+        .replace(/\[\s*,/g, '[')
+        .replace(/,\s*,+/g, ',')
+        .replace(/"\s*:\s*undefined/g, '": null')
+        .trim();
+      
+      try {
+        return JSON.parse(cleaned);
+      } catch (finalError) {
+        console.error('JSON parsing failed after cleaning:', finalError);
+        return null;
+      }
+    }
+  }
+}
+
+// Universal chat endpoint - Complete GPT freedom with GAAP
 export const handleUniversalChat = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { message, context } = req.body;
@@ -65,44 +113,61 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
       }
     }
 
-    // Single GPT call with complete freedom
+    // GPT call with complete freedom and GAAP
     const gptResponse = await llmService.createCompletion({
       model: 'gpt-4o',
       messages: [
         {
           role: 'system',
-          content: `You are Nubia, a warm and personable Excel accounting assistant who loves helping people organize their finances.
+          content: `You are Nubia, a CPA-level accounting expert with COMPLETE FREEDOM to create any Excel structure.
 
-When users give you accounting transactions or data to record:
+CORE PRINCIPLES:
+1. GAAP Compliance - Apply Generally Accepted Accounting Principles
+2. Anticipate user needs - create ALL necessary books and statements
+3. Complete freedom in Excel structure design
 
-1. FIRST: Respond conversationally like a helpful friend. Be warm, specific about what you're creating, and show you understand their needs. Examples:
-   - "I'll get those June transactions recorded for you! I'm creating a complete set of accounting books with your business startup entry properly recorded across all the journals."
-   - "Let me set up your business books with that initial ₦10,000 capital investment. I'll create proper double-entry records in the General Journal, update your Cash Book, and prepare a Trial Balance."
-   
-2. THEN: Include the Excel structure in a hidden section using this format:
+RESPONSE FORMAT:
+1. Warm conversational response (NO technical jargon visible)
+2. [EXCEL_DATA] section with ANY structure you deem best
+3. [EXCEL_COMMANDS] section for formulas, formatting, etc.
 
+YOU CAN CREATE:
+- ANY worksheet structure (not limited to predefined templates)
+- ANY data format (objects, arrays, nested structures)
+- ANY Excel commands (formulas, pivots, charts, macros)
+- ANY accounting books (journals, ledgers, statements, analysis)
+
+Example structures (but use ANY format you want):
 [EXCEL_DATA]
 {
-  "worksheets": [Create whatever sheets make accounting sense - complete freedom here]
+  "GeneralJournal": [...],
+  "CashBook": [...],
+  "TrialBalance": [...]
 }
+OR
+{
+  "worksheets": [{name: "...", data: [...]}]
+}
+OR ANY OTHER STRUCTURE
 [/EXCEL_DATA]
 
-CRITICAL RULES:
-- Be conversational and specific, not generic ("I've processed your request" is BAD)
-- Mention what you're actually creating (which books, what transactions)
-- Show personality and warmth
-- Create populated Excel sheets with actual data, not empty templates
-- Use proper accounting with real amounts from their message
-- Never show JSON or technical terms in the conversational part
+[EXCEL_COMMANDS]
+{
+  "commands": [ANY Excel commands you want]
+}
+[/EXCEL_COMMANDS]
 
-For non-Excel queries, just chat naturally and helpfully.`
+CRITICAL: 
+- Populate with ACTUAL data from user's request
+- Never show JSON/commands in conversational response
+- Create comprehensive workbooks with your complete freedom`
         },
         {
           role: 'user',
           content: message
         }
       ],
-      temperature: 0.7, // Balanced for accuracy and creativity
+      temperature: 0.5, // Lower for more consistent JSON
       max_tokens: 4000
     });
     
@@ -111,86 +176,97 @@ For non-Excel queries, just chat naturally and helpfully.`
     
     // Parse response
     let chatResponse = gptMessage;
+    let excelStructure: ExcelStructure | null = null;
+    let excelCommands: ExcelCommands | null = null;
     let excelResult: ExcelResult | null = null;
     
-    // Check if Excel data is present
+    // Extract Excel data with robust parsing
     if (gptMessage.includes('[EXCEL_DATA]')) {
       try {
-        // Extract chat response (everything before [EXCEL_DATA])
         const excelDataIndex = gptMessage.indexOf('[EXCEL_DATA]');
         chatResponse = gptMessage.substring(0, excelDataIndex).trim();
         
-        // Extract Excel JSON
         const excelMatch = gptMessage.match(/\[EXCEL_DATA\]([\s\S]*?)\[\/EXCEL_DATA\]/);
         if (excelMatch) {
-          const excelJsonStr = excelMatch[1].trim();
-          const excelStructure = JSON.parse(excelJsonStr);
+          const jsonStr = excelMatch[1].trim();
+          excelStructure = cleanAndParseJSON(jsonStr) as ExcelStructure;
           
-          // Validate structure has actual data
-          const hasData = excelStructure.worksheets?.some((ws: any) => 
-            ws.data && ws.data.length > 0
-          );
-          
-          if (!hasData) {
-            console.warn('⚠️ Excel structure has no data, skipping Excel generation');
-          } else {
-            console.log('✅ Creating Excel with', excelStructure.worksheets?.length || 0, 'worksheets');
-            
-            // Generate Excel file
-            excelResult = await excelGenerator.generateAccountingWorkbook(message, userId) as ExcelResult;
-            
-            // Update usage counter
-            if (subscription && excelResult?.success) {
-              await prisma.subscription.update({
-                where: { id: subscription.id },
-                data: { automationsUsed: subscription.automationsUsed + 1 }
-              });
-            }
+          if (!excelStructure) {
+            console.warn('Could not parse Excel structure, will generate directly');
           }
         }
+        
+        // Extract commands
+        if (gptMessage.includes('[EXCEL_COMMANDS]')) {
+          const commandMatch = gptMessage.match(/\[EXCEL_COMMANDS\]([\s\S]*?)\[\/EXCEL_COMMANDS\]/);
+          if (commandMatch) {
+            const cmdStr = commandMatch[1].trim();
+            excelCommands = cleanAndParseJSON(cmdStr) as ExcelCommands;
+          }
+        }
+        
       } catch (error) {
         console.error('Failed to parse Excel data:', error);
-        // Continue with just the chat response
-      }
-    } else {
-      // Check if this seems like it should have Excel (contains transaction keywords)
-      const needsExcel = /record|transaction|journal|book|entry|debit|credit|₦|naira|\d+[,.]?\d*/.test(message.toLowerCase());
-      
-      if (needsExcel) {
-        // GPT didn't provide Excel structure, but user seems to want it
-        console.log('📊 User seems to want Excel, generating from message');
-        try {
-          excelResult = await excelGenerator.generateAccountingWorkbook(message, userId) as ExcelResult;
-          
-          if (subscription && excelResult?.success) {
-            await prisma.subscription.update({
-              where: { id: subscription.id },
-              data: { automationsUsed: subscription.automationsUsed + 1 }
-            });
-          }
-        } catch (error) {
-          console.error('Excel generation failed:', error);
-        }
       }
     }
     
-    // Clean up chat response - remove any remaining technical content
+    // Generate Excel with complete freedom
+    if (excelStructure) {
+      try {
+        if (excelCommands?.commands) {
+          excelStructure.commands = excelCommands.commands;
+        }
+        
+        console.log('✅ Creating Excel with GPT\'s free structure');
+        excelResult = await excelGenerator.generateWithCompleteFreeedom(excelStructure, userId) as ExcelResult;
+        
+        if (subscription && excelResult?.success) {
+          await prisma.subscription.update({
+            where: { id: subscription.id },
+            data: { automationsUsed: subscription.automationsUsed + 1 }
+          });
+        }
+      } catch (error) {
+        console.error('Excel generation with structure failed:', error);
+      }
+    }
+    
+    // Fallback: Generate from message if no structure
+    if (!excelResult && /record|journal|book|transaction|account/i.test(message)) {
+      try {
+        console.log('📊 Generating Excel from message directly');
+        excelResult = await excelGenerator.generateAccountingWorkbook(message, userId) as ExcelResult;
+        
+        if (subscription && excelResult?.success) {
+          await prisma.subscription.update({
+            where: { id: subscription.id },
+            data: { automationsUsed: subscription.automationsUsed + 1 }
+          });
+        }
+      } catch (error) {
+        console.error('Direct Excel generation failed:', error);
+      }
+    }
+    
+    // Clean chat response - remove ALL technical content
     chatResponse = chatResponse
       .replace(/\[EXCEL_DATA\][\s\S]*?\[\/EXCEL_DATA\]/g, '')
+      .replace(/\[EXCEL_COMMANDS\][\s\S]*?\[\/EXCEL_COMMANDS\]/g, '')
       .replace(/```[\s\S]*?```/g, '')
       .replace(/\{[\s\S]*?\}/g, '')
+      .replace(/\[.*?\]/g, '')
       .trim();
     
-    // Ensure we have a good response
+    // Ensure conversational response
     if (!chatResponse || chatResponse.length < 10) {
       if (excelResult) {
-        chatResponse = "I've created your accounting workbook with all the transactions properly recorded. You'll find the General Journal, Cash Book, and Trial Balance sheets all set up with your data.";
+        chatResponse = "I've created your comprehensive accounting workbook with all necessary journals and statements. Everything is recorded following GAAP principles with proper double-entry bookkeeping.";
       } else {
-        chatResponse = "I'm here to help! What would you like me to do with your accounting data?";
+        chatResponse = "I'm ready to help with your accounting needs. What would you like me to record?";
       }
     }
     
-    // Store chat session
+    // Store session
     await prisma.chatSession.create({
       data: {
         userId,
@@ -202,7 +278,7 @@ For non-Excel queries, just chat naturally and helpfully.`
       }
     });
     
-    // Return response
+    // Return clean response
     if (excelResult && excelResult.success) {
       return res.json({
         success: true,
@@ -226,13 +302,9 @@ For non-Excel queries, just chat naturally and helpfully.`
   } catch (error: any) {
     console.error('❌ Chat API error:', error);
     
-    // User-friendly error messages
-    let errorMessage = 'I encountered an issue processing your request. Please try again.';
-    
+    let errorMessage = 'I encountered an issue. Please try again.';
     if (error.message?.includes('quota')) {
-      errorMessage = 'Our AI service is temporarily at capacity. Please try again in a moment.';
-    } else if (error.message?.includes('rate')) {
-      errorMessage = 'Too many requests. Please wait a moment before trying again.';
+      errorMessage = 'Service temporarily at capacity. Please try again shortly.';
     }
     
     res.status(500).json({
@@ -302,7 +374,6 @@ export const deleteChatSession = async (req: AuthenticatedRequest, res: Response
   }
 };
 
-// Export all functions
 export default {
   handleUniversalChat,
   getChatHistory,
