@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const FinancialIntelligenceService = require('./services/financialIntelligence');
 const DynamicExcelGenerator = require('./services/dynamicExcelGenerator');
 const LLMService = require('./services/llmService');
+const { extractTaggedBlock, safeParseJSON, validateExcelStructure } = require('./utils/sectionParsers');
 
 const app = express();
 const PORT = process.env.BACKEND_PORT || 3001;
@@ -364,7 +365,7 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       });
     }
 
-    console.log('💬 Processing message:', message.substring(0, 100));
+    console.log('💬 Processing NUBIA two-block request:', message.substring(0, 100));
 
     // Check usage limits first
     const subscription = subscriptions.find(s => s.userId === req.user.id);
@@ -377,145 +378,81 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       }
     }
 
-    // STEP 1: Get conversational response for user (what they see)
-    const conversationalResponse = await llmService.createCompletion({
-      model: 'gpt-4o',
+    // Single LLM call using NUBIA two-block contract
+    const { SYSTEM_PROMPT_UNIVERSAL } = require('./services/llmService');
+    const response = await llmService.createCompletion({
+      model: process.env.LLM_MODEL || 'gpt-4o',
       messages: [
         {
           role: 'system',
-          content: `You are Nubia, a friendly AI that creates Excel workbooks.
-
-CAPABILITIES:
-- You can create 1-50+ worksheets in a single workbook
-- Each worksheet can have completely different structures
-- You can include formulas, charts, pivot tables, anything Excel supports
-- You decide what's best for each request
-
-IMPORTANT:
-- Never give manual instructions ("Step 1: Open Excel")
-- Always speak as if you're creating the file ("I'll create that for you")
-- Be conversational AND provide the Excel structure
-- If the user asks for something you can't do, politely explain why
-You have COMPLETE FREEDOM to create whatever makes sense.`
+          content: SYSTEM_PROMPT_UNIVERSAL
         },
         {
           role: 'user',
           content: message
         }
       ],
-      temperature: 0.8,
-      max_tokens: 500
+      temperature: Number(process.env.LLM_TEMPERATURE ?? '0.1'),
+      max_tokens: 4000
     });
     
-    const chatMessage = conversationalResponse.choices[0].message.content;
+    const rawResponse = response.choices[0].message.content || '';
+    console.log('🎯 NUBIA two-block response received');
     
-    // STEP 2: Check if Excel is needed (hidden from user)
-    const needsExcelCheck = await llmService.createCompletion({
-      model: 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: `Determine if this user message requires creating an Excel file. 
+    // Parse two-block contract
+    const chatResponse = extractTaggedBlock(rawResponse, 'CHAT_RESPONSE') || 'Professional workbook created successfully.';
+    const excelDataBlock = extractTaggedBlock(rawResponse, 'EXCEL_DATA');
+    const structure = safeParseJSON(excelDataBlock);
 
-Respond with ONLY "YES" or "NO".
+    // Validate structure to determine if Excel is needed
+    const validation = validateExcelStructure(structure);
+    const hasValidExcel = validation.valid && structure;
 
-YES if the user wants to:
-- Record transactions
-- Create budgets, trackers, spreadsheets
-- Track data in Excel
-- Generate financial reports
-- Create any kind of workbook
-
-NO if the user is:
-- Just greeting or chatting
-- Asking questions without wanting files
-- Requesting explanations`
-        },
-        {
-          role: 'user',
-          content: message
-        }
-      ],
-      temperature: 0.1,
-      max_tokens: 10
-    });
-    
-    const needsExcel = needsExcelCheck.choices[0].message.content.trim().toUpperCase() === 'YES';
-    
-    if (needsExcel) {
-      console.log('🎯 User needs Excel file - generating data structure');
+    if (hasValidExcel) {
+      console.log('📊 Valid Excel structure detected - generating file');
       
       try {
-        // STEP 3: Get Excel data structure (JSON only, hidden from user)
-        const excelDataResponse = await llmService.createCompletion({
-          model: 'gpt-4o',
-          messages: [
-            {
-              role: 'system',
-              content: `Create Excel structure for accounting. Extract ALL transactions from user message.
-Analyze the user's message and extract all transactions. Create a comprehensive Excel structure with the actual transaction data populated in the worksheets. Return JSON with real data, not placeholders.`
-            },            
-            {
-              role: 'user',
-              content: message
-            }
-          ],
-          temperature: 0.3,
-          max_tokens: 4000
-        });
-        
-        const excelDataStr = excelDataResponse.choices[0].message.content.trim();
-        // Clean up response to get just the JSON
-        let cleanedJson = excelDataStr;
-        if (cleanedJson.includes('```json')) {
-          cleanedJson = cleanedJson.split('```json')[1].split('```')[0];
-        } else if (cleanedJson.includes('```')) {
-          cleanedJson = cleanedJson.split('```')[1].split('```')[0];
-        }
-        
-        const excelStructure = JSON.parse(cleanedJson.trim());
-        
-        // Create Excel file in background
-        const result = await excelGenerator.generateAccountingWorkbook(message, req.user.id);
+        // Generate Excel file using parsed structure
+        const result = await excelGenerator.generateFromStructure(structure, req.user.id);
         
         // Increment usage counter on success
         if (subscription && result.success) {
           subscription.automationsUsed++;
         }
         
-        // Return BOTH conversational message AND Excel data
+        // Return standardized response shape
         return res.json({
           success: true,
           type: 'excel',
-          message: chatMessage, // User sees conversational response
+          message: chatResponse, // Clean chat response for UI
           excelData: {
             filename: result.filename,
             filepath: result.filepath,
-            summary: excelStructure.summary || 'Excel file created',
-            structure: excelStructure
+            summary: structure.meta?.summary || 'Professional Excel workbook created',
+            structure: structure // Full structure for frontend processing
           }
         });
         
       } catch (error) {
         console.error('❌ Excel generation error:', error);
-        // Return just conversational response if Excel fails
+        // Return chat response with error note
         return res.json({
           success: true,
           type: 'chat',
-          message: chatMessage + " I'm having some trouble with the Excel creation right now, but I'll keep working on it!"
+          message: chatResponse + " (Note: Excel generation encountered an issue, but I've provided the analysis above.)"
         });
       }
     }
     
-    // Just conversation - no Excel needed
+    // Just conversation - no valid Excel structure
     res.json({ 
       success: true,
       type: 'chat', 
-      message: chatMessage
+      message: chatResponse
     });
 
   } catch (error) {
-    console.error('❌ Chat API error:', error);
+    console.error('❌ NUBIA Chat API error:', error);
     res.status(500).json({
       success: false,
       error: error.message

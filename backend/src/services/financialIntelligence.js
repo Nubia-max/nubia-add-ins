@@ -1,5 +1,12 @@
 require('dotenv').config();
 const OpenAI = require('openai');
+const { 
+  extractTaggedBlock, 
+  safeParseJSON, 
+  validateExcelStructure,
+  extractModeFromCommand,
+  detectAccountingFramework 
+} = require('../utils/sectionParsers');
 
 class FinancialIntelligenceService {
   constructor() {
@@ -12,109 +19,16 @@ class FinancialIntelligenceService {
     });
   }
 
-  async processFinancialCommand(userCommand, chatHistory = []) {
-    console.log('🧠 Processing command with complete GPT freedom:', userCommand);
+  async processFinancialCommand(userCommand, chatHistory = [], region = 'US') {
+    console.log('🧠 Processing NUBIA command:', userCommand);
     
-    const prompt = `
-You have COMPLETE FREEDOM to design the optimal Excel structure for: "${userCommand}"
+    // Detect mode and framework
+    const mode = extractModeFromCommand(userCommand);
+    const framework = detectAccountingFramework(userCommand, region);
+    
+    console.log(`📊 Mode: ${mode}, Framework: ${framework}`);
 
-Previous context: ${JSON.stringify(chatHistory.slice(-3))}
-
-Think like a CFO preparing board-ready financials. Every workbook should be:
-- Immediately understandable by executives
-- Audit-ready with clear documentation
-- Visually professional (subtle colors, consistent formatting)
-- Functionally rich (formulas, validations, protections)
-- GAAP/IFRS compliant with proper classifications
-- Error-resistant (IFERROR, data validation, cell protection)
-
-Create whatever sheets, analyses, and visualizations would provide maximum business insight. Anticipate questions like:
-- What's our cash runway?
-- Where are the cost overruns?
-- What are our key performance indicators?
-- How does this period compare to last?
-- What accounts need attention?
-
-CRITICAL: You must use this EXACT response format:
-
-[CHAT_RESPONSE]
-Your friendly, conversational response here. Be warm and professional. Mention key insights from the data if relevant.
-[/CHAT_RESPONSE]
-
-[EXCEL_DATA]
-{
-  "worksheets": [
-    {
-      "name": "General Journal",
-      "data": [...],
-      "formatting": {...},
-      "formulas": {...}
-    },
-    // Create AS MANY sheets as needed for professional accounting
-  ],
-  "commands": [
-    // Professional Excel commands for formulas, formatting, validation, etc.
-  ]
-}
-[/EXCEL_DATA]
-
-For the EXCEL_DATA section, create WORLD-CLASS accounting workbooks:
-
-Fundamental Sheets (as applicable):
-- General Journal with auto-posting references
-- T-Accounts/Ledgers with running balances
-- Cash Book with bank reconciliation
-- Trial Balance with auto-balancing check
-- Income Statement (multi-step format)
-- Balance Sheet (classified format)
-- Cash Flow Statement (direct & indirect)
-- Statement of Changes in Equity
-
-Enhancing Analytics:
-- Ratio Analysis Dashboard (liquidity, profitability, efficiency, leverage)
-- Trend Analysis with sparklines
-- Variance Analysis (budget vs actual)
-- Break-even Analysis
-- Aging Reports (AR/AP)
-- KPI Dashboard with conditional formatting
-
-Professional Features to Include:
-- XLOOKUP/INDEX-MATCH for account lookups
-- SUMIFS for multi-criteria totals
-- Dynamic arrays for flexible reporting
-- Data validation dropdowns for accounts
-- Conditional formatting for exceptions
-- IFERROR wrapping for robust formulas
-- Cell protection for formula integrity
-- Print-ready formatting
-
-Formatting Standards:
-- Headers: #1F4788 background, white bold text
-- Subtotals: #F2F2F2 background
-- Grand totals: #D9D9D9 background, bold
-- Negative numbers: Red, in parentheses
-- Currency: Accounting format
-- Dates: MM/DD/YYYY
-- Percentages: One decimal (0.0%)
-
-POPULATE with REALISTIC data that tells a complete story:
-- Current year dates
-- Industry-appropriate amounts
-- Meaningful transaction descriptions
-- Proper account classifications
-- Connected transactions across sheets
-- Calculated fields and automatic totals
-
-For the CHAT_RESPONSE section:
-- Be warm and professional
-- Highlight 2-3 key insights from the data
-- Suggest next steps or areas to watch
-- Keep technical jargon minimal unless requested
-
-Think like a Big 4 senior accountant preparing client deliverables. Create the workbook you'd be proud to present to a Fortune 500 CFO.
-
-REMEMBER: You have COMPLETE FREEDOM to create the optimal structure. Be comprehensive, professional, and insightful.
-`;
+    const prompt = this.buildNubiaPrompt(userCommand, chatHistory, mode, framework);
 
     try {
       const response = await this.openai.chat.completions.create({
@@ -122,76 +36,47 @@ REMEMBER: You have COMPLETE FREEDOM to create the optimal structure. Be comprehe
         messages: [
           { 
             role: "system", 
-            content: `You are a world-class CPA and CFO with expertise from Big 4 accounting firms.
-
-Your credentials:
-- CPA with 15+ years experience
-- Expert in GAAP/IFRS standards
-- Specialist in financial modeling and analysis
-- Advanced Excel automation expert
-- Industry experience across multiple sectors
-
-Your mission:
-Create BOARD-READY financial workbooks that are:
-1. Immediately actionable for C-suite decisions
-2. Fully compliant with accounting standards
-3. Visually stunning yet professional
-4. Functionally sophisticated with advanced formulas
-5. Error-proof with validation and protection
-
-Quality Standards:
-- RELEVANCE: Include predictive value (forecasts, trends) and confirmatory value (variances, reconciliations)
-- FAITHFUL REPRESENTATION: Complete (all necessary accounts), Neutral (unbiased), Error-free (validated formulas)
-- COMPARABILITY: Period-over-period columns, industry benchmarks
-- VERIFIABILITY: Clear audit trails, reference numbers
-- TIMELINESS: Current dates, automatic timestamps
-- UNDERSTANDABILITY: Clear labels, logical flow, executive summaries
-
-Always respond with the [CHAT_RESPONSE] and [EXCEL_DATA] format. Create comprehensive, multi-sheet workbooks with populated data.`
+            content: this.getNubiaSystemPrompt(mode, framework)
           },
           { role: "user", content: prompt }
         ],
-        temperature: 0.8, // Higher creativity for richer financial insights
+        temperature: 0.1,
         max_tokens: 4000
       });
 
-      const gptResponse = response.choices[0].message.content;
-      console.log('🎯 GPT Response received');
+      const raw = response.choices[0].message.content || '';
+      console.log('🎯 NUBIA Response received');
 
-      // Parse and validate the JSON response
-      let structure;
-      try {
-        // Handle GPT responses that might be wrapped in markdown code blocks
-        let cleanedResponse = gptResponse.trim();
-        if (cleanedResponse.startsWith('```json')) {
-          cleanedResponse = cleanedResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-        } else if (cleanedResponse.startsWith('```')) {
-          cleanedResponse = cleanedResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
-        }
-        
-        structure = JSON.parse(cleanedResponse);
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError);
-        console.error('Original GPT response:', gptResponse);
-        throw new Error('GPT returned invalid JSON. Please try again.');
+      // Extract sections using enhanced parser
+      const chatResponse = extractTaggedBlock(raw, 'CHAT_RESPONSE') || 'Professional workbook created successfully.';
+      const excelDataBlock = extractTaggedBlock(raw, 'EXCEL_DATA');
+      const structure = safeParseJSON(excelDataBlock);
+
+      // Validate structure
+      const validation = validateExcelStructure(structure);
+      if (!validation.valid) {
+        console.error('Structure validation failed:', validation.error);
+        console.error('Raw response (truncated):', raw.slice(0, 1200));
+        throw new Error(`Invalid Excel structure: ${validation.error}`);
       }
 
-      // Validate structure - NO FALLBACK
-      if (!structure.worksheets || !Array.isArray(structure.worksheets)) {
-        throw new Error('GPT did not return a valid Excel structure with worksheets.');
-      }
+      // Surface usage for quotas/limits
+      const usage = response.usage || {};
 
       return {
         success: true,
+        chatResponse,
         structure,
-        tokensUsed: response.usage.total_tokens,
-        model: response.model
+        tokensUsed: usage.total_tokens || 0,
+        model: response.model,
+        usage,
+        mode,
+        framework
       };
 
     } catch (error) {
-      console.error('❌ Financial Intelligence Error:', error);
+      console.error('❌ NUBIA Intelligence Error:', error);
       
-      // NO FALLBACK - just throw the error
       if (error.message.includes('API')) {
         throw new Error('OpenAI API error. Please check your API key and try again.');
       }
@@ -199,104 +84,224 @@ Always respond with the [CHAT_RESPONSE] and [EXCEL_DATA] format. Create comprehe
     }
   }
 
-  // Enhanced context-aware processing with professional standards
-  async processWithContext(userCommand, userId, previousCommands = []) {
+  getNubiaSystemPrompt(mode, framework) {
+    const modeSpecifics = this.getModeSpecifics(mode);
+    const frameworkDetails = this.getFrameworkDetails(framework);
+    
+    return `You are NUBIA — a multi-credential accountant with CPA/CA/ACCA/CMA/CIA/CFE/CFA certifications and mastery of all major accounting frameworks.
+
+CURRENT MODE: ${mode}
+FRAMEWORK: ${framework}
+
+${modeSpecifics}
+
+${frameworkDetails}
+
+CRITICAL RESPONSE FORMAT - You MUST respond with exactly these two blocks:
+
+[CHAT_RESPONSE]
+Write a warm, professional response (2-3 sentences) explaining what you've created. Mention key insights but NO technical details or JSON.
+[/CHAT_RESPONSE]
+
+[EXCEL_DATA]
+{
+  "worksheets": [
+    {
+      "name": "Worksheet Name",
+      "data": [populated array of objects with actual data],
+      "formatting": {formatting specifications}
+    }
+  ],
+  "commands": [
+    {
+      "type": "formula",
+      "cell": "C10",
+      "formula": "=SUM(C2:C9)",
+      "description": "Total calculation"
+    }
+  ]
+}
+[/EXCEL_DATA]
+
+EXCEL QUALITY STANDARDS:
+- RELEVANCE: Include predictive ratios, trends, forecasts
+- FAITHFUL REPRESENTATION: Complete accounts, validated formulas, unbiased presentation
+- COMPARABILITY: Period-over-period columns, YoY changes, benchmarks
+- VERIFIABILITY: Reference numbers, audit trails, clear documentation
+- TIMELINESS: Current dates, real-time calculations
+- UNDERSTANDABILITY: Clear labels, executive summaries, logical flow
+
+PROFESSIONAL FORMATTING COMMANDS:
+- Headers: {"type": "format", "range": "A1:Z1", "style": {"fill": "2E5090", "font": {"bold": true, "color": "FFFFFF"}}}
+- Subtotals: {"type": "format", "range": "A10:Z10", "style": {"fill": "F2F2F2", "font": {"bold": true}}}
+- Negative amounts: {"type": "format", "format": "currency_negative"}
+- All formulas wrapped in IFERROR for robustness
+
+DATA REQUIREMENTS:
+- Use realistic, current-year data
+- Include actual amounts, dates, descriptions
+- Ensure debits = credits in accounting entries
+- Create interconnected sheets that reference each other
+- Include running balances and automatic calculations
+
+NEVER include JSON, formulas, or technical content in [CHAT_RESPONSE]. Keep it conversational and executive-friendly.`;
+  }
+
+  getModeSpecifics(mode) {
+    const specs = {
+      'BOOKKEEPER': `
+BOOKKEEPING MODE - Create transaction-focused workbooks:
+Required Sheets: General Journal, Cash Book, Accounts Receivable, Accounts Payable, Bank Reconciliation
+Focus: Daily transactions, posting references, running balances
+Include: Transaction validation, duplicate detection, period-end procedures`,
+
+      'MGMT_COST': `
+MANAGEMENT/COST MODE - Create decision-support analytics:
+Required Sheets: Cost Centers, Budget vs Actual, Variance Analysis, Break-even Analysis
+Focus: Cost behavior, profitability analysis, performance measurement
+Include: Flexible budgets, cost drivers, contribution margins, segment reporting`,
+
+      'FIN_REPORT': `
+FINANCIAL REPORTING MODE - Create compliance-ready statements:
+Required Sheets: Income Statement, Balance Sheet, Statement of Cash Flows, Notes
+Focus: GAAP/IFRS compliance, presentation standards, disclosure requirements
+Include: Comparative periods, footnote references, audit trail documentation`,
+
+      'FIN_ANALYST': `
+FINANCIAL ANALYSIS MODE - Create performance analytics:
+Required Sheets: Ratio Analysis, Trend Analysis, Peer Comparison, KPI Dashboard
+Focus: Financial health, profitability, efficiency, leverage analysis
+Include: Industry benchmarks, historical trends, predictive metrics`,
+
+      'TAX': `
+TAX MODE - Create tax compliance workbooks:
+Required Sheets: Tax Calculations, Deductions, Credits, Planning Scenarios
+Focus: Tax optimization, compliance, documentation
+Include: Form preparation support, tax planning strategies, compliance checklists`,
+
+      'AUDIT': `
+AUDIT MODE - Create audit support workbooks:
+Required Sheets: Audit Trail, Control Testing, Risk Assessment, Findings Summary
+Focus: Internal controls, compliance testing, risk evaluation
+Include: Sample selections, test procedures, documentation standards`,
+
+      'FORENSIC': `
+FORENSIC MODE - Create investigation workbooks:
+Required Sheets: Transaction Analysis, Red Flags, Timeline, Evidence Summary
+Focus: Fraud detection, anomaly identification, investigation support
+Include: Pattern analysis, exception reporting, documentation preservation`
+    };
+
+    return specs[mode] || specs['FIN_REPORT'];
+  }
+
+  getFrameworkDetails(framework) {
+    const details = {
+      'US_GAAP': `
+US GAAP REQUIREMENTS:
+- Revenue Recognition: ASC 606 five-step model
+- Lease Accounting: ASC 842 right-of-use assets
+- Financial Instruments: ASC 326 expected credit losses
+- Presentation: SEC requirements, MD&A considerations
+- Currency: USD, standard US chart of accounts`,
+
+      'IFRS': `
+IFRS REQUIREMENTS:
+- Revenue Recognition: IFRS 15 five-step model
+- Lease Accounting: IFRS 16 right-of-use model
+- Financial Instruments: IFRS 9 expected credit loss model
+- Presentation: IAS 1 presentation standards
+- Currency: Local currency with USD equivalent where relevant`,
+
+      'IPSAS': `
+IPSAS REQUIREMENTS (Government/Public Sector):
+- Revenue Recognition: IPSAS 23 non-exchange revenue
+- Assets: IPSAS 17 property, plant & equipment
+- Budget Integration: Budget vs actual reporting
+- Fund Accounting: General fund, special revenue funds
+- Presentation: Government financial reporting standards`,
+
+      'UK_GAAP': `
+UK GAAP (FRS 102) REQUIREMENTS:
+- Small/Medium Entity Standards: FRS 102 provisions
+- Revenue Recognition: Performance obligation model
+- Presentation: Companies Act 2006 formats
+- Currency: GBP, UK chart of accounts structure`,
+
+      'J_GAAP': `
+JAPANESE GAAP REQUIREMENTS:
+- Revenue Recognition: JICPA standards
+- Asset Valuation: Historical cost emphasis
+- Presentation: Japanese reporting formats
+- Currency: JPY, Japanese business practices`
+    };
+
+    return details[framework] || details['US_GAAP'];
+  }
+
+  buildNubiaPrompt(userCommand, chatHistory, mode, framework) {
+    const historyContext = chatHistory.length > 0 
+      ? `Previous context: ${JSON.stringify(chatHistory.slice(-3))}\n\n`
+      : '';
+
+    return `${historyContext}PROFESSIONAL ACCOUNTING REQUEST: "${userCommand}"
+
+MODE: ${mode}
+FRAMEWORK: ${framework}
+
+Create a WORLD-CLASS Excel workbook that would impress Big 4 partners. Think like you're preparing board-ready deliverables for a Fortune 500 CFO.
+
+The workbook should be:
+✅ Immediately actionable for executive decisions
+✅ Audit-ready with complete documentation
+✅ Visually stunning with professional formatting
+✅ Functionally sophisticated with advanced formulas
+✅ Error-proof with validation and protection
+✅ Compliant with ${framework} standards
+
+SPECIFIC REQUIREMENTS:
+1. Create comprehensive, interconnected worksheets
+2. Use realistic data that tells a complete business story
+3. Include advanced Excel features (XLOOKUP, SUMIFS, dynamic arrays)
+4. Apply professional formatting throughout
+5. Add data validation and cell protection
+6. Include executive summary and key insights
+7. Ensure all calculations are formula-driven and auditable
+
+Populate with current-year data, meaningful descriptions, and industry-appropriate amounts. Make it look like it came from a Big 4 accounting firm.
+
+Remember: [CHAT_RESPONSE] is conversational, [EXCEL_DATA] is technical JSON.`;
+  }
+
+  // Enhanced context-aware processing with NUBIA intelligence
+  async processWithContext(userCommand, userId, previousCommands = [], region = 'US') {
     const chatHistory = previousCommands.map(cmd => ({
       command: cmd.command,
       timestamp: cmd.timestamp,
       success: cmd.success
     }));
 
-    // Analyze user patterns to provide better context
+    // Analyze user patterns for intelligent mode detection
     const userContext = this.analyzeUserPatterns(previousCommands);
+    const enhancedCommand = this.enhanceCommandWithContext(userCommand, userContext);
     
-    const enhancedPrompt = `
-User: ${userId}
-Current request: "${userCommand}"
-User's typical industry/focus: ${userContext.industry}
-Previous document types: ${userContext.documentTypes.join(', ')}
-Complexity preference: ${userContext.complexity}
-
-${userContext.industry !== 'unknown' ? `
-Industry-Specific Requirements for ${userContext.industry}:
-${this.getIndustrySpecificRequirements(userContext.industry)}
-` : ''}
-
-Professional Standards to Apply:
-- Financial Statement Presentation (ASC 205, IAS 1)
-- Revenue Recognition (ASC 606, IFRS 15)
-- Lease Accounting (ASC 842, IFRS 16)
-- Segment Reporting (ASC 280, IFRS 8)
-
-Create WORLD-CLASS financial documents optimized for this specific user, including:
-1. Industry-specific KPIs and metrics
-2. Regulatory compliance checks
-3. Benchmark comparisons
-4. Predictive analytics where applicable
-5. Executive dashboard with key insights
-    `;
-
-    return this.processFinancialCommand(enhancedPrompt, chatHistory);
-  }
-
-  getIndustrySpecificRequirements(industry) {
-    const requirements = {
-      restaurant: `
-- Food cost percentage analysis
-- Labor cost tracking with overtime
-- Table turnover metrics
-- Daily sales reports with weather correlation
-- Tip reconciliation and reporting
-- Menu item profitability matrix
-- Waste tracking and variance analysis`,
-      retail: `
-- Inventory turnover ratios
-- Same-store sales growth
-- SKU performance analysis
-- Seasonal trend analysis
-- Shrinkage and loss prevention metrics
-- Customer acquisition cost
-- Gross margin return on investment (GMROI)`,
-      crypto: `
-- Realized vs unrealized gains
-- Cost basis tracking (FIFO/LIFO/HIFO)
-- Staking rewards classification
-- DeFi yield tracking
-- Tax lot optimization
-- Portfolio diversification metrics
-- Risk-adjusted returns (Sharpe ratio)`,
-      consulting: `
-- Utilization rates by consultant
-- Project profitability analysis
-- Pipeline and backlog reporting
-- Realization rates
-- Client concentration risk
-- Billable vs non-billable analysis
-- Work in progress (WIP) aging`,
-      real_estate: `
-- Cap rate analysis
-- Net operating income (NOI)
-- Debt service coverage ratio (DSCR)
-- Occupancy and vacancy rates
-- Rent roll analysis
-- CAM reconciliation
-- Property-level P&L with same-store comparisons`
-    };
-    return requirements[industry] || 'Standard GAAP/IFRS compliance';
+    return this.processFinancialCommand(enhancedCommand, chatHistory, region);
   }
 
   analyzeUserPatterns(previousCommands) {
     const industries = {
-      restaurant: ['restaurant', 'food', 'dining', 'menu', 'tips'],
-      retail: ['sales', 'inventory', 'products', 'customers', 'store'],
-      crypto: ['bitcoin', 'crypto', 'cryptocurrency', 'trading', 'wallet'],
-      consulting: ['client', 'project', 'consulting', 'billable', 'time'],
-      real_estate: ['property', 'real estate', 'rent', 'lease', 'tenant']
+      manufacturing: ['widget', 'factory', 'production', 'inventory', 'raw materials'],
+      retail: ['sales', 'store', 'customers', 'merchandise', 'pos'],
+      restaurant: ['restaurant', 'food', 'dining', 'menu', 'tips', 'covers'],
+      consulting: ['client', 'project', 'billable', 'utilization', 'engagement'],
+      real_estate: ['property', 'rent', 'lease', 'tenant', 'cap rate'],
+      crypto: ['bitcoin', 'crypto', 'trading', 'defi', 'wallet'],
+      government: ['government', 'public', 'municipality', 'taxpayer', 'citizen']
     };
 
-    let detectedIndustry = 'unknown';
-    let documentTypes = [];
+    let detectedIndustry = 'general';
     let complexityScore = 0;
+    let preferredMode = 'FIN_REPORT';
 
     previousCommands.forEach(cmd => {
       const command = cmd.command.toLowerCase();
@@ -308,109 +313,107 @@ Create WORLD-CLASS financial documents optimized for this specific user, includi
         }
       });
 
-      // Analyze complexity
-      if (command.includes('formula') || command.includes('calculate')) complexityScore++;
-      if (command.includes('chart') || command.includes('graph')) complexityScore++;
-      if (command.includes('multiple') || command.includes('several')) complexityScore++;
+      // Analyze complexity and preferred mode
+      if (command.includes('formula') || command.includes('complex')) complexityScore += 2;
+      if (command.includes('analysis') || command.includes('dashboard')) complexityScore += 1;
+      if (command.includes('journal') || command.includes('ledger')) preferredMode = 'BOOKKEEPER';
+      if (command.includes('budget') || command.includes('cost')) preferredMode = 'MGMT_COST';
+      if (command.includes('ratio') || command.includes('performance')) preferredMode = 'FIN_ANALYST';
     });
 
     return {
       industry: detectedIndustry,
-      documentTypes,
-      complexity: complexityScore > 2 ? 'high' : complexityScore > 0 ? 'medium' : 'simple'
+      complexity: complexityScore > 3 ? 'high' : complexityScore > 1 ? 'medium' : 'basic',
+      preferredMode,
+      commandCount: previousCommands.length
     };
   }
 
-  // Intelligent command enhancement with professional standards
-  enhanceCommand(userCommand) {
-    const enhancements = {
-      restaurant: {
-        keywords: ['restaurant', 'food', 'dining', 'cafe', 'bar'],
-        additions: `Create comprehensive restaurant accounting package:
-        - Daily cash reconciliation with POS integration
-        - Prime cost analysis (food + labor)
-        - Menu engineering matrix (stars, puzzles, plowhorses, dogs)
-        - Theoretical vs actual food cost variance
-        - Server productivity and tip reporting
-        - Break-even analysis with covers needed
-        - 13-period P&L for year-over-year comparison`
-      },
-      sales: {
-        keywords: ['sales', 'revenue', 'income', 'invoice'],
-        additions: `Generate professional sales analytics:
-        - Sales pipeline with probability weighting
-        - Customer lifetime value (CLV) analysis
-        - Sales velocity and conversion metrics
-        - Territory performance mapping
-        - Commission calculations with tier breaks
-        - Revenue recognition waterfall
-        - Deferred revenue scheduling`
-      },
-      expenses: {
-        keywords: ['expense', 'cost', 'spending', 'budget'],
-        additions: `Build comprehensive expense management system:
-        - Expense categorization per GAAP
-        - Budget vs actual with variance analysis
-        - Trend analysis with anomaly detection
-        - Vendor spend analysis with concentration risk
-        - Approval workflow tracking
-        - Tax deduction optimization
-        - Zero-based budgeting templates`
-      },
-      crypto: {
-        keywords: ['bitcoin', 'crypto', 'trading', 'defi', 'nft'],
-        additions: `Create institutional-grade crypto accounting:
-        - Multi-wallet consolidation
-        - Tax lot tracking with optimization
-        - DeFi position tracking and yield analysis
-        - Impermanent loss calculations
-        - Mining/staking income classification
-        - Mark-to-market valuations
-        - Form 8949 preparation format`
-      },
-      payroll: {
-        keywords: ['payroll', 'salary', 'wages', 'employee'],
-        additions: `Design complete payroll management suite:
-        - Gross-to-net calculations
-        - Tax withholding schedules
-        - Benefit deduction tracking
-        - Overtime and shift differential
-        - Accrued PTO liability
-        - Workers comp allocation
-        - 941/940 quarterly reporting format`
-      },
-      inventory: {
-        keywords: ['inventory', 'stock', 'warehouse', 'product'],
-        additions: `Implement inventory control system:
-        - Perpetual inventory tracking
-        - FIFO/LIFO/Average cost layers
-        - Reorder point optimization
-        - ABC analysis for SKU prioritization
-        - Shrinkage and cycle count variance
-        - Inventory turnover by category
-        - Obsolescence reserve calculation`
-      }
-    };
+  enhanceCommandWithContext(userCommand, context) {
+    if (context.industry === 'manufacturing') {
+      return `${userCommand}
 
-    let enhanced = userCommand;
-    Object.entries(enhancements).forEach(([type, config]) => {
-      if (config.keywords.some(keyword => userCommand.toLowerCase().includes(keyword))) {
-        enhanced += `\n\nPROFESSIONAL ENHANCEMENT:\n${config.additions}`;
-      }
-    });
+MANUFACTURING CONTEXT: Include cost accounting elements like raw materials, work-in-progress, finished goods inventory. Add manufacturing overhead allocation, labor efficiency metrics, and production variance analysis.`;
+    }
 
-    // Add universal enhancements
-    enhanced += `\n\nUNIVERSAL FEATURES TO INCLUDE:
-    - Automated three-way matching
-    - Exception reporting with thresholds
-    - Audit trail with user tracking
-    - Multi-period comparative analysis
-    - Drill-down capability references
-    - Executive summary dashboard
-    - Export-ready for tax software`;
+    if (context.industry === 'restaurant') {
+      return `${userCommand}
 
-    return enhanced;
+RESTAURANT CONTEXT: Include prime cost analysis (food + labor), covers and average check calculations, tip reconciliation, inventory turnover by category, and weekly/monthly P&L comparison.`;
+    }
+
+    if (context.industry === 'government') {
+      return `${userCommand}
+
+GOVERNMENT CONTEXT: Use fund accounting principles, include budget vs actual with encumbrances, create commitment control schedules, and ensure IPSAS compliance for financial reporting.`;
+    }
+
+    return userCommand;
   }
 }
 
 module.exports = FinancialIntelligenceService;
+
+/*
+TODO for TypeScript controllers:
+
+1. chatController.ts - Update flow:
+   async handleFinancialCommand(req, res) {
+     const { command, userId, chatHistory, region = 'US' } = req.body;
+     
+     // Check quota before processing
+     await checkPlanAllows(userId, 3500); // Estimated tokens
+     
+     const finService = new FinancialIntelligenceService();
+     const result = await finService.processFinancialCommand(command, chatHistory, region);
+     
+     // Send ONLY chatResponse to frontend (never JSON)
+     res.json({ 
+       message: result.chatResponse,
+       success: result.success,
+       mode: result.mode,
+       framework: result.framework
+     });
+     
+     // Pass structure internally to Excel generator
+     await excelService.generateExcel(result.structure, userId);
+     
+     // Record usage for billing/quotas
+     await recordUsage({
+       userId,
+       tokens: result.tokensUsed,
+       model: result.model,
+       mode: result.mode,
+       at: new Date().toISOString()
+     });
+   }
+
+2. excelService.ts - Excel generation:
+   async generateExcel(structure: any, userId: string) {
+     const generator = new DynamicExcelGenerator();
+     return await generator.generateWithCompleteFreedom(structure, userId);
+   }
+
+3. Import usage tracking:
+   import { recordUsage, checkPlanAllows } from '../services/usageService';
+*/
+
+/* NUBIA Test Scenarios:
+
+1. Manufacturing Request: "Create cost accounting system for automotive parts manufacturer"
+   Expected Mode: MGMT_COST
+   Expected Sheets: Cost Centers, WIP Tracking, Standard vs Actual Costs, Overhead Allocation
+   
+2. Government Request: "Set up municipal budget tracking with IPSAS compliance"
+   Expected Mode: AUDIT (compliance focus)
+   Expected Framework: IPSAS
+   Expected Sheets: Budget Register, Fund Accounting, Commitment Control
+   
+3. Restaurant Request: "Build comprehensive P&L analysis for multi-location restaurant chain"
+   Expected Mode: FIN_ANALYST
+   Expected Sheets: Store-by-Store P&L, Prime Cost Analysis, Same-Store Sales Growth
+   
+4. Tax Request: "Prepare small business tax planning workbook with deduction optimization"
+   Expected Mode: TAX
+   Expected Sheets: Income Summary, Deduction Categories, Tax Scenarios, Form Prep
+*/
