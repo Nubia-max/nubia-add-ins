@@ -49,7 +49,7 @@ export class ExcelService {
     
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-4-turbo-preview",
+        model: "gpt-4o",
         messages: [{
           role: "system",
           content: `You are Nubia, an expert financial analyst and accountant with COMPLETE FREEDOM to design optimal Excel structures.
@@ -176,7 +176,7 @@ You decide the best structure. Be creative and comprehensive.`
 
     try {
       const completion = await this.openai.chat.completions.create({
-        model: "gpt-4-turbo-preview",
+        model: "gpt-4o",
         messages: [{
           role: "system",
           content: `You are an Excel expert with complete freedom to create any formulas, calculations, or structures needed.

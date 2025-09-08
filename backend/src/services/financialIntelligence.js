@@ -54,7 +54,7 @@ REMEMBER: Use the [CHAT_RESPONSE] and [EXCEL_DATA] format shown above. Be creati
 
     try {
       const response = await this.openai.chat.completions.create({
-        model: "gpt-4-turbo-preview",
+        model: "gpt-4o",
         messages: [
           { 
             role: "system", 

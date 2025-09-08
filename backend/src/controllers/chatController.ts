@@ -67,192 +67,147 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
 
     // Single GPT call with complete freedom
     const gptResponse = await llmService.createCompletion({
-      model: 'gpt-4-turbo-preview',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
-          content: `You are Nubia, a friendly Excel assistant who helps users with accounting tasks.
+          content: `You are Nubia, a warm and personable Excel accounting assistant who loves helping people organize their finances.
 
-IMPORTANT RESPONSE FORMAT:
-1. ALWAYS start with a friendly conversational response for the user
-2. Then add a special section with Excel data
-3. Use this exact format:
+When users give you accounting transactions or data to record:
 
-[CHAT_RESPONSE]
-Your friendly response here (NO technical jargon, NO mention of debits/credits unless asked, NO JSON visible)
-[/CHAT_RESPONSE]
+1. FIRST: Respond conversationally like a helpful friend. Be warm, specific about what you're creating, and show you understand their needs. Examples:
+   - "I'll get those June transactions recorded for you! I'm creating a complete set of accounting books with your business startup entry properly recorded across all the journals."
+   - "Let me set up your business books with that initial ₦10,000 capital investment. I'll create proper double-entry records in the General Journal, update your Cash Book, and prepare a Trial Balance."
+   
+2. THEN: Include the Excel structure in a hidden section using this format:
 
 [EXCEL_DATA]
 {
-  "worksheets": [
-    {
-      "name": "General Journal",
-      "columns": [...],
-      "data": [ACTUAL populated transaction data with real amounts, dates, descriptions]
-    }
-  ]
+  "worksheets": [Create whatever sheets make accounting sense - complete freedom here]
 }
 [/EXCEL_DATA]
 
-For the EXCEL_DATA section:
-- Create multiple interconnected accounting worksheets (General Journal, Cash Book, Ledgers, Trial Balance, etc.)
-- POPULATE with the actual transaction data from the user's request
-- Include real amounts, proper dates, account names, and descriptions
-- Add formulas for running balances and calculations
-- Design whatever structure best serves the accounting need
+CRITICAL RULES:
+- Be conversational and specific, not generic ("I've processed your request" is BAD)
+- Mention what you're actually creating (which books, what transactions)
+- Show personality and warmth
+- Create populated Excel sheets with actual data, not empty templates
+- Use proper accounting with real amounts from their message
+- Never show JSON or technical terms in the conversational part
 
-For the CHAT_RESPONSE section:
-- Be warm and conversational
-- Simply tell them you've recorded their transactions
-- Don't mention technical accounting terms unless they ask
-- Don't show any JSON or technical details`
+For non-Excel queries, just chat naturally and helpfully.`
         },
         {
           role: 'user',
           content: message
         }
       ],
-      temperature: 0.9, // High creativity for rich accounting structures
-      max_tokens: 4000 // Maximum allowed for gpt-4-turbo-preview
+      temperature: 0.7, // Balanced for accuracy and creativity
+      max_tokens: 4000
     });
     
     const gptMessage = gptResponse.choices[0].message.content;
     console.log('🤖 GPT Response received');
     
-    // Separate chat response from Excel data
-    let chatResponse = '';
-    let excelStructure: any = null;
-    let excelCreated = false;
+    // Parse response
+    let chatResponse = gptMessage;
     let excelResult: ExcelResult | null = null;
     
-    // Parse structured response format
-    if (gptMessage.includes('[CHAT_RESPONSE]') && gptMessage.includes('[EXCEL_DATA]')) {
-      console.log('📋 Parsing structured response with chat and Excel data');
-      
+    // Check if Excel data is present
+    if (gptMessage.includes('[EXCEL_DATA]')) {
       try {
-        // Extract clean chat response
-        const chatMatch = gptMessage.match(/\[CHAT_RESPONSE\]([\s\S]*?)\[\/CHAT_RESPONSE\]/);
-        if (chatMatch) {
-          chatResponse = chatMatch[1].trim();
-        }
+        // Extract chat response (everything before [EXCEL_DATA])
+        const excelDataIndex = gptMessage.indexOf('[EXCEL_DATA]');
+        chatResponse = gptMessage.substring(0, excelDataIndex).trim();
         
-        // Extract Excel data structure
+        // Extract Excel JSON
         const excelMatch = gptMessage.match(/\[EXCEL_DATA\]([\s\S]*?)\[\/EXCEL_DATA\]/);
         if (excelMatch) {
-          let excelJsonStr = excelMatch[1].trim();
+          const excelJsonStr = excelMatch[1].trim();
+          const excelStructure = JSON.parse(excelJsonStr);
           
-          // Clean up markdown if present
-          if (excelJsonStr.includes('```json')) {
-            excelJsonStr = excelJsonStr.split('```json')[1].split('```')[0];
-          } else if (excelJsonStr.includes('```')) {
-            excelJsonStr = excelJsonStr.split('```')[1].split('```')[0];
-          }
+          // Validate structure has actual data
+          const hasData = excelStructure.worksheets?.some((ws: any) => 
+            ws.data && ws.data.length > 0
+          );
           
-          excelStructure = JSON.parse(excelJsonStr.trim()) as any;
-          console.log('✅ Parsed Excel structure with', (excelStructure as any)?.worksheets?.length || 0, 'worksheets');
-          
-          // Generate populated Excel file using the structure
-          excelResult = await excelGenerator.generateFromStructure(excelStructure, message, userId) as ExcelResult;
-          excelCreated = true;
-        }
-      } catch (parseError) {
-        console.error('❌ Failed to parse structured response:', parseError);
-        // Fallback to original message
-        chatResponse = gptMessage;
-      }
-    } else {
-      // Fallback: GPT didn't use structured format, clean up the response
-      console.log('📝 No structured format detected, cleaning up response');
-      
-      // Try to extract JSON and clean the message
-      let cleanedMessage = gptMessage;
-      
-      // Remove any JSON structures from the message
-      if (cleanedMessage.includes('{') && (cleanedMessage.includes('worksheet') || cleanedMessage.includes('sheet'))) {
-        try {
-          // Find JSON boundaries
-          const jsonStart = cleanedMessage.indexOf('{');
-          const jsonEnd = cleanedMessage.lastIndexOf('}') + 1;
-          
-          if (jsonStart !== -1 && jsonEnd > jsonStart) {
-            let jsonStr = cleanedMessage.substring(jsonStart, jsonEnd);
-            
-            // Clean up markdown if present
-            if (jsonStr.includes('```json')) {
-              jsonStr = jsonStr.split('```json')[1].split('```')[0];
-            } else if (jsonStr.includes('```')) {
-              jsonStr = jsonStr.split('```')[1].split('```')[0];
-            }
-            
-            // Try to parse and use the JSON for Excel generation
-            const parsedStructure = JSON.parse(jsonStr.trim()) as any;
-            console.log('✅ Found and parsed Excel structure from unformatted response');
+          if (!hasData) {
+            console.warn('⚠️ Excel structure has no data, skipping Excel generation');
+          } else {
+            console.log('✅ Creating Excel with', excelStructure.worksheets?.length || 0, 'worksheets');
             
             // Generate Excel file
-            excelResult = await excelGenerator.generateFromStructure(parsedStructure, message, userId) as ExcelResult;
-            excelCreated = true;
+            excelResult = await excelGenerator.generateAccountingWorkbook(message, userId) as ExcelResult;
             
-            // Clean the message by removing JSON
-            cleanedMessage = cleanedMessage.substring(0, jsonStart).trim();
-            
-            // If nothing is left, provide a default message
-            if (!cleanedMessage) {
-              cleanedMessage = 'I\'ve recorded your transactions in a comprehensive accounting workbook with multiple sheets including General Journal, Cash Book, and Trial Balance.';
+            // Update usage counter
+            if (subscription && excelResult?.success) {
+              await prisma.subscription.update({
+                where: { id: subscription.id },
+                data: { automationsUsed: subscription.automationsUsed + 1 }
+              });
             }
           }
-        } catch (error) {
-          console.log('⚠️ Could not parse JSON from unformatted response:', error);
-          // Remove any JSON-like content manually
-          cleanedMessage = cleanedMessage.replace(/\{[\s\S]*\}/g, '').trim();
-          if (!cleanedMessage) {
-            cleanedMessage = 'I\'ve processed your request. Please check the generated files.';
+        }
+      } catch (error) {
+        console.error('Failed to parse Excel data:', error);
+        // Continue with just the chat response
+      }
+    } else {
+      // Check if this seems like it should have Excel (contains transaction keywords)
+      const needsExcel = /record|transaction|journal|book|entry|debit|credit|₦|naira|\d+[,.]?\d*/.test(message.toLowerCase());
+      
+      if (needsExcel) {
+        // GPT didn't provide Excel structure, but user seems to want it
+        console.log('📊 User seems to want Excel, generating from message');
+        try {
+          excelResult = await excelGenerator.generateAccountingWorkbook(message, userId) as ExcelResult;
+          
+          if (subscription && excelResult?.success) {
+            await prisma.subscription.update({
+              where: { id: subscription.id },
+              data: { automationsUsed: subscription.automationsUsed + 1 }
+            });
           }
+        } catch (error) {
+          console.error('Excel generation failed:', error);
         }
       }
-      
-      // Remove any remaining technical markers
-      cleanedMessage = cleanedMessage
-        .replace(/\[EXCEL_DATA\][\s\S]*?\[\/EXCEL_DATA\]/g, '')
-        .replace(/\[CHAT_RESPONSE\][\s\S]*?\[\/CHAT_RESPONSE\]/g, '')
-        .replace(/```json[\s\S]*?```/g, '')
-        .replace(/```[\s\S]*?```/g, '')
-        .trim();
-      
-      if (!cleanedMessage) {
-        cleanedMessage = 'I\'ve processed your request successfully.';
+    }
+    
+    // Clean up chat response - remove any remaining technical content
+    chatResponse = chatResponse
+      .replace(/\[EXCEL_DATA\][\s\S]*?\[\/EXCEL_DATA\]/g, '')
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/\{[\s\S]*?\}/g, '')
+      .trim();
+    
+    // Ensure we have a good response
+    if (!chatResponse || chatResponse.length < 10) {
+      if (excelResult) {
+        chatResponse = "I've created your accounting workbook with all the transactions properly recorded. You'll find the General Journal, Cash Book, and Trial Balance sheets all set up with your data.";
+      } else {
+        chatResponse = "I'm here to help! What would you like me to do with your accounting data?";
       }
-      
-      chatResponse = cleanedMessage;
     }
     
-    // Increment usage counter if Excel was created
-    if (subscription && excelCreated && excelResult && excelResult.success) {
-      await prisma.subscription.update({
-        where: { id: subscription.id },
-        data: { automationsUsed: subscription.automationsUsed + 1 }
-      });
-    }
-    
-    // Store chat session (save only the clean response, not raw GPT output)
+    // Store chat session
     await prisma.chatSession.create({
       data: {
         userId,
         messages: JSON.stringify([
           { role: 'user', content: message },
-          { role: 'assistant', content: chatResponse || 'Response processed successfully.' }
+          { role: 'assistant', content: chatResponse }
         ]),
         tokensUsed: gptResponse.usage?.total_tokens || 0
       }
     });
     
-    // Return clean response - GUARANTEED no JSON visible to user
-    if (excelCreated && excelResult) {
-      const cleanMessage = chatResponse || 'I\'ve recorded your transactions in a comprehensive accounting workbook with multiple sheets including General Journal, Cash Book, and Trial Balance.';
-      
+    // Return response
+    if (excelResult && excelResult.success) {
       return res.json({
         success: true,
         type: 'excel',
-        message: cleanMessage,
+        message: chatResponse,
         excelData: {
           filename: excelResult.filename,
           filepath: excelResult.filepath,
@@ -261,35 +216,28 @@ For the CHAT_RESPONSE section:
         }
       });
     } else {
-      // Just a chat response - ensure it's clean
-      let cleanMessage = chatResponse;
-      
-      // Final safety check: remove any JSON that might have slipped through
-      if (cleanMessage && (cleanMessage.includes('{') || cleanMessage.includes('[EXCEL_DATA]'))) {
-        cleanMessage = cleanMessage
-          .replace(/\\{[\\s\\S]*\\}/g, '')
-          .replace(/\\[EXCEL_DATA\\][\\s\\S]*?\\[\\/EXCEL_DATA\\]/g, '')
-          .replace(/```json[\\s\\S]*?```/g, '')
-          .replace(/```[\\s\\S]*?```/g, '')
-          .trim();
-        
-        if (!cleanMessage) {
-          cleanMessage = 'I\'ve processed your request successfully.';
-        }
-      }
-      
       return res.json({ 
         success: true,
         type: 'chat', 
-        message: cleanMessage || 'Thank you for your message.'
+        message: chatResponse
       });
     }
 
   } catch (error: any) {
     console.error('❌ Chat API error:', error);
+    
+    // User-friendly error messages
+    let errorMessage = 'I encountered an issue processing your request. Please try again.';
+    
+    if (error.message?.includes('quota')) {
+      errorMessage = 'Our AI service is temporarily at capacity. Please try again in a moment.';
+    } else if (error.message?.includes('rate')) {
+      errorMessage = 'Too many requests. Please wait a moment before trying again.';
+    }
+    
     res.status(500).json({
       success: false,
-      error: error.message
+      error: errorMessage
     });
   }
 };

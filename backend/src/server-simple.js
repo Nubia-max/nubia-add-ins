@@ -379,7 +379,7 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
 
     // STEP 1: Get conversational response for user (what they see)
     const conversationalResponse = await llmService.createCompletion({
-      model: 'gpt-4',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
@@ -411,7 +411,7 @@ You have COMPLETE FREEDOM to create whatever makes sense.`
     
     // STEP 2: Check if Excel is needed (hidden from user)
     const needsExcelCheck = await llmService.createCompletion({
-      model: 'gpt-4',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
@@ -448,7 +448,7 @@ NO if the user is:
       try {
         // STEP 3: Get Excel data structure (JSON only, hidden from user)
         const excelDataResponse = await llmService.createCompletion({
-          model: 'gpt-4',
+          model: 'gpt-4o',
           messages: [
             {
               role: 'system',

@@ -50,7 +50,7 @@ Respond naturally about what you're creating, then include a flexible JSON struc
       messages.push({ role: 'user', content: message });
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
+        model: 'gpt-4o',
         messages,
         max_tokens: 4000,
         temperature: 0.9, // Higher for more creativity
@@ -135,7 +135,7 @@ Think like a professional accountant and create the most comprehensive, useful E
 Respond naturally about what you're creating, then provide a detailed JSON structure. Use any format that makes sense - you have complete freedom to design the optimal solution.`;
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4-turbo-preview',
+        model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userCommand }
