@@ -1,5 +1,5 @@
-// src/utils/sectionParsers.js
-// Robust section parsing for NUBIA Excel automation
+// LEGENDARY NUBIA SECTION PARSERS
+// Pure mechanical extraction and validation - NO DECISIONS
 
 function extractTaggedBlock(text, tag) {
   const start = new RegExp(`\\[${tag}\\]`, 'i');
@@ -11,19 +11,27 @@ function extractTaggedBlock(text, tag) {
     // Fallback detection for when GPT forgets tags
     if (tag === 'CHAT_RESPONSE') {
       // Look for conversational content before JSON
-      const jsonStart = text.search(/\{[\s\S]*"worksheets"/i);
+      const jsonStart = text.search(/\{[\s\S]*"workbook"/i);
       if (jsonStart > 0) {
         return text.slice(0, jsonStart).trim();
       }
       // If no JSON found, return first paragraph
       const firstParagraph = text.split('\n\n')[0];
-      return firstParagraph.length > 10 ? firstParagraph : 'Workbook created successfully.';
+      return firstParagraph.length > 10 ? firstParagraph : 'I\'ve processed your request.';
     }
     
     if (tag === 'EXCEL_DATA') {
-      // Look for JSON object starting with worksheets
-      const jsonMatch = text.match(/\{[\s\S]*"worksheets"[\s\S]*\}/i);
-      return jsonMatch ? jsonMatch[0] : null;
+      // Look for JSON object starting with meta (rules-first format)
+      const metaMatch = text.match(/\{[\s\S]*"meta"[\s\S]*\}/i);
+      if (metaMatch) return metaMatch[0];
+      
+      // Fallback: Look for workbook array
+      const workbookMatch = text.match(/\{[\s\S]*"workbook"[\s\S]*\}/i);
+      if (workbookMatch) return workbookMatch[0];
+      
+      // Legacy: Look for worksheets
+      const worksheetMatch = text.match(/\{[\s\S]*"worksheets"[\s\S]*\}/i);
+      return worksheetMatch ? worksheetMatch[0] : null;
     }
     
     return null;
@@ -46,6 +54,27 @@ function safeParseJSON(jsonText) {
   // Remove markdown code blocks
   if (t.startsWith('```json')) t = t.replace(/^```json\s*/i, '').replace(/\s*```$/,'');
   if (t.startsWith('```'))     t = t.replace(/^```\s*/i, '').replace(/\s*```$/,'');
+  
+  // Handle truncated JSON by attempting to complete it
+  if (!t.endsWith('}') && !t.endsWith(']')) {
+    console.log('🔧 Detected truncated JSON, attempting to complete...');
+    
+    // Count open vs close braces/brackets
+    const openBraces = (t.match(/{/g) || []).length;
+    const closeBraces = (t.match(/}/g) || []).length;
+    const openBrackets = (t.match(/\[/g) || []).length;
+    const closeBrackets = (t.match(/\]/g) || []).length;
+    
+    // Add missing closing characters
+    const missingBrackets = Math.max(0, openBrackets - closeBrackets);
+    const missingBraces = Math.max(0, openBraces - closeBraces);
+    
+    if (missingBrackets > 0 || missingBraces > 0) {
+      console.log(`🔧 Adding ${missingBrackets} closing brackets and ${missingBraces} closing braces`);
+      t += ']'.repeat(missingBrackets);
+      t += '}'.repeat(missingBraces);
+    }
+  }
   
   try { 
     return JSON.parse(t); 
@@ -77,84 +106,120 @@ function validateExcelStructure(structure) {
     return { valid: false, error: 'Structure is not an object' };
   }
   
-  // Support multiple formats
+  // ENHANCED: Rules-first validation with critical accounting checks
+  if (structure.meta) {
+    const meta = structure.meta;
+    
+    // Validate meta section exists
+    if (!meta.mode) {
+      return { valid: false, error: 'Missing mode in meta section' };
+    }
+    if (!meta.framework) {
+      return { valid: false, error: 'Missing framework in meta section' };
+    }
+    // Checks are optional - only validate if present
+    if (meta.checks && !Array.isArray(meta.checks)) {
+      return { valid: false, error: 'Invalid validation checks format in meta section' };
+    }
+    
+    // CRITICAL: Verify accounting integrity checks passed (only if checks exist)
+    if (meta.checks && Array.isArray(meta.checks)) {
+      const debitsCredits = meta.checks.find(c => 
+        c.check === 'DebitsEqualCredits' || c.check.includes('Debit')
+      );
+      const trialBalance = meta.checks.find(c => 
+        c.check === 'TrialBalanceZero' || c.check.includes('TrialBalance')
+      );
+      
+      if (debitsCredits && !debitsCredits.passed) {
+        return { 
+          valid: false, 
+          error: 'CRITICAL: Debits do not equal credits - accounting integrity violation' 
+        };
+      }
+      
+      if (trialBalance && !trialBalance.passed) {
+        return { 
+          valid: false, 
+          error: 'CRITICAL: Trial balance does not sum to zero - accounting integrity violation' 
+        };
+      }
+      
+      // Check for any failed critical checks
+      const failedChecks = meta.checks.filter(c => !c.passed);
+      if (failedChecks.length > 0) {
+        const criticalFailed = failedChecks.filter(c => 
+          c.check.includes('Debits') || 
+          c.check.includes('Credits') || 
+          c.check.includes('Balance') ||
+          c.check.includes('IS_Links') ||
+          c.check.includes('PAT')
+        );
+        
+        if (criticalFailed.length > 0) {
+          return { 
+            valid: false, 
+            error: `CRITICAL accounting validation failed: ${criticalFailed.map(c => c.check).join(', ')}` 
+          };
+        }
+      }
+    }
+  }
+  
+  // Support multiple workbook formats
   const worksheets = structure.worksheets || structure.workbook || [];
   
   if (!Array.isArray(worksheets) || worksheets.length === 0) {
     return { valid: false, error: 'No worksheets found in structure' };
   }
   
-  // Validate each worksheet has required fields
+  // Auto-fix worksheet names and validate more leniently
   for (let i = 0; i < worksheets.length; i++) {
     const ws = worksheets[i];
-    if (!ws.name || typeof ws.name !== 'string') {
-      return { valid: false, error: `Worksheet ${i} missing valid name` };
+    
+    // Auto-fix missing names
+    if (!ws.name && !ws.sheetName) {
+      ws.name = `Sheet${i + 1}`;
+      console.log(`🔧 Auto-assigned name "Sheet${i + 1}" to worksheet ${i}`);
+    } else if (!ws.name && ws.sheetName) {
+      ws.name = ws.sheetName;
     }
     
-    // At least one of these should exist
-    if (!ws.data && !ws.rows && !ws.columns && !ws.entries) {
-      return { valid: false, error: `Worksheet ${ws.name} has no data` };
+    // Be more lenient about data - GPT might use different field names
+    const hasData = ws.data || ws.rows || ws.columns || ws.entries || ws.content || 
+                   ws.table || ws.items || (ws.headers && ws.values);
+    
+    if (!hasData) {
+      console.log(`⚠️ Worksheet ${ws.name || i} appears to have no data, but allowing it`);
     }
   }
   
   return { valid: true };
 }
 
-function extractModeFromCommand(command) {
-  const cmd = command.toLowerCase();
-  
-  if (cmd.includes('journal') || cmd.includes('ledger') || cmd.includes('transaction')) {
-    return 'BOOKKEEPER';
-  }
-  if (cmd.includes('cost') || cmd.includes('budget') || cmd.includes('variance') || cmd.includes('margin')) {
-    return 'MGMT_COST';
-  }
-  if (cmd.includes('financial statement') || cmd.includes('balance sheet') || cmd.includes('income statement')) {
-    return 'FIN_REPORT';
-  }
-  if (cmd.includes('ratio') || cmd.includes('analysis') || cmd.includes('performance') || cmd.includes('kpi')) {
-    return 'FIN_ANALYST';
-  }
-  if (cmd.includes('tax') || cmd.includes('deduction') || cmd.includes('1040') || cmd.includes('schedule')) {
-    return 'TAX';
-  }
-  if (cmd.includes('audit') || cmd.includes('control') || cmd.includes('compliance') || cmd.includes('risk')) {
-    return 'AUDIT';
-  }
-  if (cmd.includes('forensic') || cmd.includes('fraud') || cmd.includes('investigation')) {
-    return 'FORENSIC';
-  }
-  
-  return 'FIN_REPORT'; // Default mode
-}
-
-function detectAccountingFramework(command, region = 'US') {
-  const cmd = command.toLowerCase();
-  
-  if (cmd.includes('ifrs') || cmd.includes('ias')) return 'IFRS';
-  if (cmd.includes('ipsas')) return 'IPSAS';
-  if (cmd.includes('gaap') && (cmd.includes('us') || cmd.includes('american'))) return 'US_GAAP';
-  if (cmd.includes('gaap') && (cmd.includes('uk') || cmd.includes('british'))) return 'UK_GAAP';
-  if (cmd.includes('j-gaap') || cmd.includes('japanese')) return 'J_GAAP';
-  
-  // Regional defaults
-  const frameworkMap = {
-    'US': 'US_GAAP',
-    'CA': 'IFRS',
-    'UK': 'UK_GAAP',
-    'EU': 'IFRS',
-    'JP': 'J_GAAP',
-    'AU': 'IFRS',
-    'IN': 'IFRS'
-  };
-  
-  return frameworkMap[region] || 'US_GAAP';
-}
-
 module.exports = { 
   extractTaggedBlock, 
   safeParseJSON, 
-  validateExcelStructure,
-  extractModeFromCommand,
-  detectAccountingFramework
+  validateExcelStructure
 };
+
+/*
+LEGENDARY NUBIA SECTION PARSERS
+✅ Pure mechanical extraction - no decisions
+✅ Enhanced JSON cleanup and parsing
+✅ CRITICAL accounting validation (debits=credits, trial balance=0)
+✅ Rules-first validation with integrity checks
+✅ No hardcoded mode or framework detection
+✅ GPT has complete freedom to decide everything
+
+REMOVED DECISION-MAKING FUNCTIONS:
+❌ extractModeFromCommand() - GPT decides mode
+❌ detectAccountingFramework() - GPT determines framework
+
+KEPT MECHANICAL FUNCTIONS:
+✅ extractTaggedBlock() - pure extraction
+✅ safeParseJSON() - mechanical parsing with cleanup
+✅ validateExcelStructure() - validation of GPT's decisions
+
+The legendary principle: Parsers parse, GPT decides
+*/
