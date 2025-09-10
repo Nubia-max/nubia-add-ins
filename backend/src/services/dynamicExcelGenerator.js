@@ -31,10 +31,40 @@ class DynamicExcelGenerator {
       const filename = `Nubia_${userId}_${Date.now()}.xlsx`;
       const filepath = path.join(this.outputDir, filename);
       
+      // First, extract unique sheet names from commands to understand GPT's intent
+      const commandSheetNames = [];
+      if (structure.commands) {
+        structure.commands.forEach(cmd => {
+          if (cmd.sheet && !commandSheetNames.includes(cmd.sheet)) {
+            commandSheetNames.push(cmd.sheet);
+          }
+        });
+      }
+      
+      console.log(`📋 GPT intended sheet names: ${commandSheetNames.join(', ')}`);
+      
       // Execute EXACTLY what GPT specified - no defaults, no fallbacks
-      for (const sheet of structure.workbook) {
-        const sheetName = sheet.name || sheet.sheetName || sheet.title || 'Sheet';
+      for (let i = 0; i < structure.workbook.length; i++) {
+        const sheet = structure.workbook[i];
+        let sheetName = sheet.sheet || sheet.sheetName || sheet.title || sheet.name;
+        
+        console.log(`📋 Sheet ${i} raw data:`, JSON.stringify({
+          name: sheet.name,
+          sheet: sheet.sheet, 
+          sheetName: sheet.sheetName,
+          title: sheet.title
+        }));
+        
+        // If no name provided, use the intended name from commands (in order)
+        if (!sheetName && commandSheetNames[i]) {
+          sheetName = commandSheetNames[i];
+          console.log(`📋 Using command-inferred name: "${sheetName}" for sheet ${i}`);
+        } else if (!sheetName) {
+          sheetName = `Sheet${i + 1}`;
+        }
+        
         const worksheet = workbook.addWorksheet(sheetName);
+        console.log(`📋 Created worksheet: "${sheetName}"`);
         
         // Add data exactly as GPT provided - support multiple data formats
         const sheetData = sheet.data || sheet.rows || sheet.content || sheet.entries;
@@ -226,104 +256,961 @@ class DynamicExcelGenerator {
 
   // Execute commands exactly as GPT specified
   executeCommandsAsSpecified(workbook, commands) {
-    if (!commands || !Array.isArray(commands)) return;
+  if (!commands || !Array.isArray(commands)) return;
 
-    console.log(`📝 Executing ${commands.length} GPT commands`);
+  console.log(`📝 Executing ${commands.length} GPT commands`);
+  
+  for (const cmd of commands) {
+    let commandType; // Declare outside try block for error handling
+    try {
+      // Handle text commands (validation instructions)
+      if (typeof cmd === 'string') {
+        console.log(`📋 GPT Instruction: ${cmd}`);
+        continue;
+      }
+      
+      const worksheet = cmd.sheet || cmd.target ? 
+        workbook.getWorksheet(cmd.sheet || cmd.target) : 
+        workbook.worksheets[0];
+      
+      if (!worksheet) {
+        console.warn(`❌ Worksheet not found: ${cmd.sheet || cmd.target}`);
+        continue;
+      }
+      
+      // Fix single column references in the command before processing
+      if (cmd.range) {
+        const originalRange = cmd.range;
+        cmd.range = this.fixColumnReference(cmd.range);
+        if (originalRange !== cmd.range) {
+          console.log(`🔧 Fixed range: "${originalRange}" → "${cmd.range}"`);
+        }
+      }
+      if (cmd.columns) {
+        const originalColumns = cmd.columns;
+        cmd.columns = this.fixColumnReference(cmd.columns);
+        if (originalColumns !== cmd.columns) {
+          console.log(`🔧 Fixed columns: "${originalColumns}" → "${cmd.columns}"`);
+        }
+      }
+      
+      commandType = cmd.type || this.inferCommandType(cmd);
+      
+      switch(commandType) {
+        case 'format':
+          this.applyFormat(worksheet, cmd);
+          break;
+
+        case 'formula':
+          this.applyFormula(worksheet, cmd);
+          break;
+
+        case 'merge':
+          this.applyMerge(worksheet, cmd);
+          break;
+
+        case 'validation':
+          this.applyValidation(worksheet, cmd);
+          break;
+
+        case 'conditional_format':
+          this.applyConditionalFormat(worksheet, cmd);
+          break;
+
+        case 'freeze_panes':
+          this.applyFreezePanes(worksheet, cmd);
+          break;
+
+        case 'column_width':
+          this.applyColumnWidth(worksheet, cmd);
+          break;
+
+        case 'row_height':
+          this.applyRowHeight(worksheet, cmd);
+          break;
+
+        case 'print_setup':
+          this.applyPrintSetup(worksheet, cmd);
+          break;
+
+        case 'header_footer':
+          this.applyHeaderFooter(worksheet, cmd);
+          break;
+
+        case 'protection':
+          this.applyProtection(worksheet, cmd);
+          break;
+
+        case 'filter':
+          this.applyFilter(worksheet, cmd);
+          break;
+
+        case 'sort':
+          this.applySort(worksheet, cmd);
+          break;
+
+        case 'comment':
+          this.applyComment(worksheet, cmd);
+          break;
+
+        case 'hyperlink':
+          this.applyHyperlink(worksheet, cmd);
+          break;
+
+        case 'image':
+          this.applyImage(workbook, worksheet, cmd);
+          break;
+
+        case 'chart':
+          this.applyChart(worksheet, cmd);
+          break;
+
+        case 'table':
+          this.applyTable(worksheet, cmd);
+          break;
+
+        case 'pivot':
+          this.applyPivot(worksheet, cmd);
+          break;
+
+        case 'sparkline':
+          this.applySparkline(worksheet, cmd);
+          break;
+
+        case 'data_bar':
+          this.applyDataBar(worksheet, cmd);
+          break;
+
+        case 'icon_set':
+          this.applyIconSet(worksheet, cmd);
+          break;
+
+        case 'color_scale':
+          this.applyColorScale(worksheet, cmd);
+          break;
+
+        case 'group':
+          this.applyGrouping(worksheet, cmd);
+          break;
+
+        case 'outline':
+          this.applyOutline(worksheet, cmd);
+          break;
+
+        case 'subtotal':
+          this.applySubtotal(worksheet, cmd);
+          break;
+
+        case 'page_break':
+          this.applyPageBreak(worksheet, cmd);
+          break;
+
+        case 'background':
+          this.applyBackground(worksheet, cmd);
+          break;
+
+        case 'tab_color':
+          this.applyTabColor(worksheet, cmd);
+          break;
+
+        case 'split_panes':
+          this.applySplitPanes(worksheet, cmd);
+          break;
+
+        case 'zoom':
+          this.applyZoom(worksheet, cmd);
+          break;
+
+        case 'rich_text':
+          this.applyRichText(worksheet, cmd);
+          break;
+
+        case 'gradient':
+          this.applyGradient(worksheet, cmd);
+          break;
+
+        case 'pattern':
+          this.applyPattern(worksheet, cmd);
+          break;
+
+        case 'text_rotation':
+          this.applyTextRotation(worksheet, cmd);
+          break;
+
+        case 'indent':
+          this.applyIndent(worksheet, cmd);
+          break;
+
+        case 'wrap_text':
+          this.applyWrapText(worksheet, cmd);
+          break;
+
+        case 'shrink_to_fit':
+          this.applyShrinkToFit(worksheet, cmd);
+          break;
+
+        case 'custom_format':
+          this.applyCustomFormat(worksheet, cmd);
+          break;
+
+        case 'named_range':
+          this.applyNamedRange(workbook, worksheet, cmd);
+          break;
+
+        case 'data_validation':
+          this.applyDataValidation(worksheet, cmd);
+          break;
+
+        case 'cell_style':
+          this.applyCellStyle(worksheet, cmd);
+          break;
+
+        default:
+          console.log(`❓ Unhandled command type: ${commandType}`, cmd);
+      }
+    } catch (error) {
+      console.error(`❌ Command execution error: ${error.message}`);
+      console.error(`❌ Failed command:`, JSON.stringify(cmd, null, 2));
+      console.error(`❌ Command type: ${commandType}`);
+    }
+  }
+}
+
+// Helper method to fix single column references
+fixColumnReference(range) {
+  if (!range) return range;
+  
+  // Handle single column references like "C" to "C:C"
+  if (range.match(/^[A-Z]$/)) {
+    return `${range}:${range}`;
+  }
+  
+  // Handle multi-column ranges like "C:E" - ExcelJS needs cell references
+  if (range.match(/^[A-Z]:[A-Z]$/)) {
+    const [startCol, endCol] = range.split(':');
+    return `${startCol}1:${endCol}1000`; // Use a reasonable row range
+  }
+  
+  return range;
+}
+
+// Individual command implementation methods
+applyFormat(worksheet, cmd) {
+  if (!cmd.range) return;
+  
+  // Fix single column references
+  cmd.range = this.fixColumnReference(cmd.range);
+  
+  const ranges = cmd.range.split(',');
+  
+  ranges.forEach(range => {
+    const [start, end] = range.trim().split(':');
     
-    for (const cmd of commands) {
-      try {
-        // Handle text commands (validation instructions)
-        if (typeof cmd === 'string') {
-          console.log(`📋 GPT Validation Instruction: ${cmd}`);
-          // These are validation reminders, not executable commands
-          continue;
+    if (end) {
+      const startCell = worksheet.getCell(start);
+      const endCell = worksheet.getCell(end);
+      
+      // Handle column ranges
+      if (start.match(/^[A-Z]+$/) && end.match(/^[A-Z]+$/)) {
+        for (let col = start.charCodeAt(0); col <= end.charCodeAt(0); col++) {
+          const column = worksheet.getColumn(String.fromCharCode(col));
+          if (cmd.numberFormat) column.numFmt = cmd.numberFormat;
         }
-        
-        const worksheet = cmd.sheet ? 
-          workbook.getWorksheet(cmd.sheet) : 
-          workbook.worksheets[0];
-        
-        if (!worksheet) {
-          console.warn(`Worksheet not found: ${cmd.sheet}`);
-          continue;
+      } else {
+        // Cell range
+        for (let row = startCell.row; row <= endCell.row; row++) {
+          for (let col = startCell.col; col <= endCell.col; col++) {
+            this.formatCell(worksheet.getCell(row, col), cmd);
+          }
         }
-        
-        // GPT might not always provide a 'type' field - infer from command structure
-        const commandType = cmd.type || this.inferCommandType(cmd);
-        
-        switch(commandType) {
-          case 'formula':
-            if (cmd.cell && cmd.formula) {
-              // Wrap in IFERROR to prevent errors - only mechanical protection
-              const formula = cmd.formula.startsWith('=IFERROR') ? 
-                cmd.formula : 
-                `=IFERROR(${cmd.formula}, 0)`;
-              worksheet.getCell(cmd.cell).value = { formula };
-            }
-            break;
-            
-          case 'validation':
-            if (cmd.cell && cmd.values) {
-              worksheet.getCell(cmd.cell).dataValidation = {
-                type: 'list',
-                allowBlank: cmd.allowBlank || false,
-                formulae: [`"${cmd.values.join(',')}"`],
-                showErrorMessage: true,
-                errorTitle: cmd.errorTitle || 'Invalid Selection',
-                error: cmd.error || 'Please select from the list'
-              };
-            } else if (cmd.range && cmd.type === 'numeric') {
-              // Handle numeric validation for ranges
-              const [start, end] = cmd.range.split(':');
-              const worksheet_target = cmd.target ? 
-                workbook.getWorksheet(cmd.target) : worksheet;
-              
-              if (worksheet_target) {
-                // Apply numeric validation to range
-                this.applyNumericValidationToRange(worksheet_target, cmd.range);
-              }
-            }
-            break;
-            
-          case 'format':
-            if (cmd.range && cmd.format) {
-              const range = worksheet.getCell(cmd.range);
-              Object.assign(range, cmd.format);
-            } else if (cmd.range && cmd.style === 'bold') {
-              // Handle GPT's bold formatting
-              const worksheet_target = cmd.target ? 
-                workbook.getWorksheet(cmd.target) : worksheet;
-              
-              if (worksheet_target) {
-                this.applyBoldFormatting(worksheet_target, cmd.range);
-              }
-            }
-            break;
+      }
+    } else {
+      // Single cell
+      this.formatCell(worksheet.getCell(range.trim()), cmd);
+    }
+  });
+}
 
-          case 'conditional_format':
-            this.applyConditionalFormat(worksheet, cmd);
-            break;
-            
-          default:
-            console.log(`Unrecognized command structure:`, cmd);
-            // Log but don't fail - GPT knows what it's doing
+formatCell(cell, cmd) {
+  if (cmd.font) {
+    cell.font = {
+      name: cmd.font.name || 'Calibri',
+      size: cmd.font.size || 11,
+      bold: cmd.font.bold,
+      italic: cmd.font.italic,
+      underline: cmd.font.underline,
+      strike: cmd.font.strike,
+      color: cmd.font.color ? { argb: 'FF' + cmd.font.color } : undefined
+    };
+  }
+  
+  if (cmd.fill) {
+    if (cmd.fill.type === 'gradient') {
+      cell.fill = {
+        type: 'gradient',
+        gradient: cmd.fill.gradient
+      };
+    } else {
+      cell.fill = {
+        type: 'pattern',
+        pattern: cmd.fill.pattern || 'solid',
+        fgColor: cmd.fill.color ? { argb: 'FF' + cmd.fill.color } : undefined,
+        bgColor: cmd.fill.bgColor ? { argb: 'FF' + cmd.fill.bgColor } : undefined
+      };
+    }
+  }
+  
+  if (cmd.border) {
+    cell.border = cmd.border;
+  }
+  
+  if (cmd.alignment) {
+    cell.alignment = {
+      horizontal: cmd.alignment.horizontal,
+      vertical: cmd.alignment.vertical,
+      textRotation: cmd.alignment.textRotation,
+      wrapText: cmd.alignment.wrapText,
+      shrinkToFit: cmd.alignment.shrinkToFit,
+      indent: cmd.alignment.indent
+    };
+  }
+  
+  if (cmd.numberFormat) {
+    cell.numFmt = cmd.numberFormat;
+  }
+}
+
+applyFormula(worksheet, cmd) {
+  if (cmd.cell && cmd.formula) {
+    let formula = cmd.formula;
+    if (!formula.startsWith('=')) formula = '=' + formula;
+    if (!formula.includes('IFERROR')) {
+      formula = `=IFERROR(${formula.substring(1)}, 0)`;
+    }
+    worksheet.getCell(cmd.cell).value = { formula };
+  }
+}
+
+applyMerge(worksheet, cmd) {
+  if (cmd.range) {
+    worksheet.mergeCells(cmd.range);
+    if (cmd.alignment) {
+      const [start] = cmd.range.split(':');
+      worksheet.getCell(start).alignment = cmd.alignment;
+    }
+  }
+}
+
+applyValidation(worksheet, cmd) {
+  if (cmd.cell || cmd.range) {
+    const validation = {
+      type: cmd.validationType || 'list',
+      allowBlank: cmd.allowBlank !== false,
+      showErrorMessage: true,
+      errorTitle: cmd.errorTitle || 'Invalid Entry',
+      error: cmd.error || 'Please enter a valid value'
+    };
+    
+    if (cmd.values) {
+      validation.formulae = [`"${cmd.values.join(',')}"`];
+    } else if (cmd.formula) {
+      validation.formulae = [cmd.formula];
+    } else if (cmd.min !== undefined || cmd.max !== undefined) {
+      validation.operator = cmd.operator || 'between';
+      validation.formulae = [cmd.min, cmd.max].filter(v => v !== undefined);
+    }
+    
+    if (cmd.range) {
+      // Fix single column references
+      cmd.range = this.fixColumnReference(cmd.range);
+      const [start, end] = cmd.range.split(':');
+      const startCell = worksheet.getCell(start);
+      const endCell = worksheet.getCell(end || start);
+      
+      for (let r = startCell.row; r <= endCell.row; r++) {
+        for (let c = startCell.col; c <= endCell.col; c++) {
+          worksheet.getCell(r, c).dataValidation = validation;
         }
-      } catch (error) {
-        console.error(`Command execution error: ${error.message}`);
+      }
+    } else {
+      worksheet.getCell(cmd.cell).dataValidation = validation;
+    }
+  }
+}
+
+applyConditionalFormat(worksheet, cmd) {
+  if (!cmd.range || !cmd.rule) return;
+  
+  // Fix single column references
+  cmd.range = this.fixColumnReference(cmd.range);
+  const [start, end] = cmd.range.split(':');
+  const startCell = worksheet.getCell(start);
+  const endCell = worksheet.getCell(end || start);
+  
+  for (let r = startCell.row; r <= endCell.row; r++) {
+    for (let c = startCell.col; c <= endCell.col; c++) {
+      const cell = worksheet.getCell(r, c);
+      const value = typeof cell.value === 'object' ? cell.value.result : cell.value;
+      let shouldFormat = false;
+      
+      switch (cmd.rule.type) {
+        case 'negative':
+          shouldFormat = Number(value) < 0;
+          break;
+        case 'positive':
+          shouldFormat = Number(value) > 0;
+          break;
+        case 'zero':
+          shouldFormat = Number(value) === 0;
+          break;
+        case 'greaterThan':
+          shouldFormat = Number(value) > Number(cmd.rule.value);
+          break;
+        case 'lessThan':
+          shouldFormat = Number(value) < Number(cmd.rule.value);
+          break;
+        case 'between':
+          shouldFormat = Number(value) >= Number(cmd.rule.min) && 
+                       Number(value) <= Number(cmd.rule.max);
+          break;
+        case 'equals':
+          shouldFormat = value == cmd.rule.value;
+          break;
+        case 'notEquals':
+          shouldFormat = value != cmd.rule.value;
+          break;
+        case 'contains':
+          shouldFormat = String(value).includes(cmd.rule.value);
+          break;
+        case 'beginsWith':
+          shouldFormat = String(value).startsWith(cmd.rule.value);
+          break;
+        case 'endsWith':
+          shouldFormat = String(value).endsWith(cmd.rule.value);
+          break;
+        case 'blank':
+          shouldFormat = !value;
+          break;
+        case 'notBlank':
+          shouldFormat = !!value;
+          break;
+        case 'duplicate':
+          shouldFormat = this.isDuplicate(worksheet, value);
+          break;
+        case 'unique':
+          shouldFormat = !this.isDuplicate(worksheet, value);
+          break;
+        case 'top':
+          shouldFormat = this.isTop(worksheet, value, cmd.rule.count || 10, cmd.range);
+          break;
+        case 'bottom':
+          shouldFormat = this.isBottom(worksheet, value, cmd.rule.count || 10, cmd.range);
+          break;
+      }
+      
+      if (shouldFormat && cmd.style) {
+        this.formatCell(cell, cmd.style);
       }
     }
   }
+}
 
+applyFreezePanes(worksheet, cmd) {
+  const views = [];
+  
+  if (cmd.row && cmd.col) {
+    views.push({
+      state: 'frozen',
+      xSplit: cmd.col,
+      ySplit: cmd.row,
+      topLeftCell: worksheet.getCell(cmd.row + 1, cmd.col + 1).address
+    });
+  } else if (cmd.row) {
+    views.push({
+      state: 'frozen',
+      ySplit: cmd.row,
+      topLeftCell: `A${cmd.row + 1}`
+    });
+  } else if (cmd.col) {
+    views.push({
+      state: 'frozen',
+      xSplit: cmd.col,
+      topLeftCell: worksheet.getCell(1, cmd.col + 1).address
+    });
+  } else if (cmd.cell) {
+    const cell = worksheet.getCell(cmd.cell);
+    views.push({
+      state: 'frozen',
+      xSplit: cell.col - 1,
+      ySplit: cell.row - 1,
+      topLeftCell: cmd.cell
+    });
+  }
+  
+  if (views.length > 0) {
+    worksheet.views = views;
+  }
+}
+
+applyColumnWidth(worksheet, cmd) {
+  if (!cmd.columns) return;
+  
+  const [start, end] = cmd.columns.split(':');
+  
+  for (let col = start.charCodeAt(0); col <= (end || start).charCodeAt(0); col++) {
+    const column = worksheet.getColumn(String.fromCharCode(col));
+    
+    if (cmd.width === 'auto') {
+      let maxWidth = 10;
+      column.eachCell({ includeEmpty: false }, (cell) => {
+        const value = String(cell.value || '');
+        maxWidth = Math.max(maxWidth, value.length * 1.1 + 2);
+      });
+      column.width = Math.min(maxWidth, 100);
+    } else {
+      column.width = cmd.width;
+    }
+    
+    if (cmd.hidden) column.hidden = true;
+  }
+}
+
+applyRowHeight(worksheet, cmd) {
+  if (cmd.rows) {
+    const [start, end] = String(cmd.rows).split(':');
+    for (let r = Number(start); r <= Number(end || start); r++) {
+      const row = worksheet.getRow(r);
+      if (cmd.height === 'auto') {
+        row.height = undefined; // Reset to auto
+      } else {
+        row.height = cmd.height;
+      }
+      if (cmd.hidden) row.hidden = true;
+    }
+  }
+}
+
+// Additional helper methods
+isDuplicate(worksheet, value) {
+  let count = 0;
+  worksheet.eachRow((row) => {
+    row.eachCell((cell) => {
+      if (cell.value === value) count++;
+    });
+  });
+  return count > 1;
+}
+
+isTop(worksheet, value, count, range) {
+  const values = [];
+  const [start, end] = range.split(':');
+  const startCell = worksheet.getCell(start);
+  const endCell = worksheet.getCell(end);
+  
+  for (let r = startCell.row; r <= endCell.row; r++) {
+    for (let c = startCell.col; c <= endCell.col; c++) {
+      const cellValue = worksheet.getCell(r, c).value;
+      if (typeof cellValue === 'number') values.push(cellValue);
+    }
+  }
+  
+  values.sort((a, b) => b - a);
+  return values.indexOf(value) < count;
+}
+
+isBottom(worksheet, value, count, range) {
+  const values = [];
+  const [start, end] = range.split(':');
+  const startCell = worksheet.getCell(start);
+  const endCell = worksheet.getCell(end);
+  
+  for (let r = startCell.row; r <= endCell.row; r++) {
+    for (let c = startCell.col; c <= endCell.col; c++) {
+      const cellValue = worksheet.getCell(r, c).value;
+      if (typeof cellValue === 'number') values.push(cellValue);
+    }
+  }
+  
+  values.sort((a, b) => a - b);
+  return values.indexOf(value) < count;
+}
+
+// Additional missing method implementations
+applyPrintSetup(worksheet, cmd) {
+  if (!worksheet.pageSetup) worksheet.pageSetup = {};
+  
+  if (cmd.orientation) worksheet.pageSetup.orientation = cmd.orientation;
+  if (cmd.paperSize) worksheet.pageSetup.paperSize = cmd.paperSize;
+  if (cmd.margins) worksheet.pageSetup.margins = cmd.margins;
+  if (cmd.scale) worksheet.pageSetup.scale = cmd.scale;
+  if (cmd.fitToPage) worksheet.pageSetup.fitToPage = cmd.fitToPage;
+}
+
+applyHeaderFooter(worksheet, cmd) {
+  if (!worksheet.headerFooter) worksheet.headerFooter = {};
+  
+  if (cmd.header) worksheet.headerFooter.oddHeader = cmd.header;
+  if (cmd.footer) worksheet.headerFooter.oddFooter = cmd.footer;
+  if (cmd.evenHeader) worksheet.headerFooter.evenHeader = cmd.evenHeader;
+  if (cmd.evenFooter) worksheet.headerFooter.evenFooter = cmd.evenFooter;
+}
+
+applyProtection(worksheet, cmd) {
+  if (cmd.password) {
+    worksheet.protect(cmd.password, cmd.options || {});
+  } else {
+    worksheet.protect('', cmd.options || {});
+  }
+}
+
+applyFilter(worksheet, cmd) {
+  if (cmd.range) {
+    worksheet.autoFilter = cmd.range;
+  }
+}
+
+applySort(worksheet, cmd) {
+  // Note: ExcelJS doesn't directly support sorting, this would be a placeholder
+  console.log('Sort command received but not implemented in ExcelJS:', cmd);
+}
+
+applyComment(worksheet, cmd) {
+  if (cmd.cell && cmd.text) {
+    const cell = worksheet.getCell(cmd.cell);
+    cell.note = {
+      texts: [{ text: cmd.text }],
+      margins: { insetmode: 'auto' },
+      protection: { locked: true },
+      editAs: 'absolute'
+    };
+  }
+}
+
+applyHyperlink(worksheet, cmd) {
+  if (cmd.cell && cmd.url) {
+    const cell = worksheet.getCell(cmd.cell);
+    cell.value = {
+      text: cmd.text || cmd.url,
+      hyperlink: cmd.url
+    };
+  }
+}
+
+applyImage(workbook, worksheet, cmd) {
+  if (cmd.path || cmd.base64) {
+    const imageId = workbook.addImage({
+      base64: cmd.base64,
+      filename: cmd.path,
+      extension: cmd.extension || 'png'
+    });
+    
+    worksheet.addImage(imageId, {
+      tl: { col: cmd.col || 0, row: cmd.row || 0 },
+      ext: { width: cmd.width || 100, height: cmd.height || 100 }
+    });
+  }
+}
+
+applyChart(worksheet, cmd) {
+  // Note: ExcelJS has limited chart support
+  console.log('Chart command received but limited support in ExcelJS:', cmd);
+}
+
+applyTable(worksheet, cmd) {
+  if (cmd.range && cmd.name) {
+    worksheet.addTable({
+      name: cmd.name,
+      ref: cmd.range,
+      headerRow: cmd.headerRow !== false,
+      totalsRow: cmd.totalsRow || false,
+      style: cmd.style || {
+        theme: 'TableStyleMedium2',
+        showRowStripes: true
+      },
+      columns: cmd.columns || []
+    });
+  }
+}
+
+applyPivot(worksheet, cmd) {
+  // Note: ExcelJS doesn't support pivot tables
+  console.log('Pivot table command received but not supported in ExcelJS:', cmd);
+}
+
+applySparkline(worksheet, cmd) {
+  // Note: ExcelJS doesn't support sparklines
+  console.log('Sparkline command received but not supported in ExcelJS:', cmd);
+}
+
+applyDataBar(worksheet, cmd) {
+  // This would be handled through conditional formatting
+  if (cmd.range) {
+    this.applyConditionalFormat(worksheet, {
+      range: cmd.range,
+      rule: { type: 'dataBar' },
+      style: cmd.style || {}
+    });
+  }
+}
+
+applyIconSet(worksheet, cmd) {
+  // This would be handled through conditional formatting
+  console.log('Icon set command received but limited support in ExcelJS:', cmd);
+}
+
+applyColorScale(worksheet, cmd) {
+  // This would be handled through conditional formatting
+  console.log('Color scale command received but limited support in ExcelJS:', cmd);
+}
+
+applyGrouping(worksheet, cmd) {
+  if (cmd.rows) {
+    const [start, end] = String(cmd.rows).split(':');
+    worksheet.getRows(Number(start), Number(end) - Number(start) + 1).forEach(row => {
+      row.outlineLevel = cmd.level || 1;
+    });
+  }
+  
+  if (cmd.columns) {
+    const [start, end] = cmd.columns.split(':');
+    for (let col = start.charCodeAt(0); col <= end.charCodeAt(0); col++) {
+      const column = worksheet.getColumn(String.fromCharCode(col));
+      column.outlineLevel = cmd.level || 1;
+    }
+  }
+}
+
+applyOutline(worksheet, cmd) {
+  // Similar to grouping
+  this.applyGrouping(worksheet, cmd);
+}
+
+applySubtotal(worksheet, cmd) {
+  // Note: This would require complex calculation logic
+  console.log('Subtotal command received but requires manual implementation:', cmd);
+}
+
+applyPageBreak(worksheet, cmd) {
+  if (cmd.row) {
+    const row = worksheet.getRow(cmd.row);
+    row.addPageBreak = true;
+  }
+}
+
+applyBackground(worksheet, cmd) {
+  if (cmd.image) {
+    // Note: ExcelJS has limited background image support
+    console.log('Background image command received but limited support:', cmd);
+  }
+}
+
+applyTabColor(worksheet, cmd) {
+  if (cmd.color) {
+    worksheet.properties.tabColor = { argb: 'FF' + cmd.color };
+  }
+}
+
+applySplitPanes(worksheet, cmd) {
+  const views = [];
+  
+  if (cmd.row || cmd.col) {
+    views.push({
+      state: 'split',
+      xSplit: cmd.col || 0,
+      ySplit: cmd.row || 0
+    });
+    worksheet.views = views;
+  }
+}
+
+applyZoom(worksheet, cmd) {
+  if (cmd.scale) {
+    worksheet.views = [{
+      zoomScale: cmd.scale,
+      zoomScaleNormal: cmd.scale
+    }];
+  }
+}
+
+applyRichText(worksheet, cmd) {
+  if (cmd.cell && cmd.richText) {
+    const cell = worksheet.getCell(cmd.cell);
+    cell.value = {
+      richText: cmd.richText
+    };
+  }
+}
+
+applyGradient(worksheet, cmd) {
+  if (cmd.range && cmd.gradient) {
+    cmd.range = this.fixColumnReference(cmd.range);
+    const [start, end] = cmd.range.split(':');
+    const startCell = worksheet.getCell(start);
+    const endCell = worksheet.getCell(end || start);
+    
+    for (let r = startCell.row; r <= endCell.row; r++) {
+      for (let c = startCell.col; c <= endCell.col; c++) {
+        const cell = worksheet.getCell(r, c);
+        cell.fill = {
+          type: 'gradient',
+          gradient: cmd.gradient
+        };
+      }
+    }
+  }
+}
+
+applyPattern(worksheet, cmd) {
+  if (cmd.range && cmd.pattern) {
+    cmd.range = this.fixColumnReference(cmd.range);
+    const [start, end] = cmd.range.split(':');
+    const startCell = worksheet.getCell(start);
+    const endCell = worksheet.getCell(end || start);
+    
+    for (let r = startCell.row; r <= endCell.row; r++) {
+      for (let c = startCell.col; c <= endCell.col; c++) {
+        const cell = worksheet.getCell(r, c);
+        cell.fill = {
+          type: 'pattern',
+          pattern: cmd.pattern.type || 'solid',
+          fgColor: cmd.pattern.fgColor ? { argb: 'FF' + cmd.pattern.fgColor } : undefined,
+          bgColor: cmd.pattern.bgColor ? { argb: 'FF' + cmd.pattern.bgColor } : undefined
+        };
+      }
+    }
+  }
+}
+
+applyTextRotation(worksheet, cmd) {
+  if (cmd.range && cmd.rotation !== undefined) {
+    cmd.range = this.fixColumnReference(cmd.range);
+    const [start, end] = cmd.range.split(':');
+    const startCell = worksheet.getCell(start);
+    const endCell = worksheet.getCell(end || start);
+    
+    for (let r = startCell.row; r <= endCell.row; r++) {
+      for (let c = startCell.col; c <= endCell.col; c++) {
+        const cell = worksheet.getCell(r, c);
+        cell.alignment = {
+          ...cell.alignment,
+          textRotation: cmd.rotation
+        };
+      }
+    }
+  }
+}
+
+applyIndent(worksheet, cmd) {
+  if (cmd.range && cmd.indent !== undefined) {
+    cmd.range = this.fixColumnReference(cmd.range);
+    const [start, end] = cmd.range.split(':');
+    const startCell = worksheet.getCell(start);
+    const endCell = worksheet.getCell(end || start);
+    
+    for (let r = startCell.row; r <= endCell.row; r++) {
+      for (let c = startCell.col; c <= endCell.col; c++) {
+        const cell = worksheet.getCell(r, c);
+        cell.alignment = {
+          ...cell.alignment,
+          indent: cmd.indent
+        };
+      }
+    }
+  }
+}
+
+applyWrapText(worksheet, cmd) {
+  if (cmd.range) {
+    cmd.range = this.fixColumnReference(cmd.range);
+    const [start, end] = cmd.range.split(':');
+    const startCell = worksheet.getCell(start);
+    const endCell = worksheet.getCell(end || start);
+    
+    for (let r = startCell.row; r <= endCell.row; r++) {
+      for (let c = startCell.col; c <= endCell.col; c++) {
+        const cell = worksheet.getCell(r, c);
+        cell.alignment = {
+          ...cell.alignment,
+          wrapText: cmd.wrap !== false
+        };
+      }
+    }
+  }
+}
+
+applyShrinkToFit(worksheet, cmd) {
+  if (cmd.range) {
+    cmd.range = this.fixColumnReference(cmd.range);
+    const [start, end] = cmd.range.split(':');
+    const startCell = worksheet.getCell(start);
+    const endCell = worksheet.getCell(end || start);
+    
+    for (let r = startCell.row; r <= endCell.row; r++) {
+      for (let c = startCell.col; c <= endCell.col; c++) {
+        const cell = worksheet.getCell(r, c);
+        cell.alignment = {
+          ...cell.alignment,
+          shrinkToFit: cmd.shrink !== false
+        };
+      }
+    }
+  }
+}
+
+applyCustomFormat(worksheet, cmd) {
+  if (cmd.range && cmd.format) {
+    cmd.range = this.fixColumnReference(cmd.range);
+    const [start, end] = cmd.range.split(':');
+    const startCell = worksheet.getCell(start);
+    const endCell = worksheet.getCell(end || start);
+    
+    for (let r = startCell.row; r <= endCell.row; r++) {
+      for (let c = startCell.col; c <= endCell.col; c++) {
+        const cell = worksheet.getCell(r, c);
+        cell.numFmt = cmd.format;
+      }
+    }
+  }
+}
+
+applyNamedRange(workbook, worksheet, cmd) {
+  if (cmd.name && cmd.range) {
+    workbook.definedNames.add(cmd.name, `'${worksheet.name}'!${cmd.range}`);
+  }
+}
+
+applyDataValidation(worksheet, cmd) {
+  // This is essentially the same as applyValidation
+  this.applyValidation(worksheet, cmd);
+}
+
+applyCellStyle(worksheet, cmd) {
+  if (cmd.range && cmd.style) {
+    this.formatCell(worksheet.getCell(cmd.range), cmd.style);
+  }
+}
   // Infer command type from GPT's natural output structure
   inferCommandType(cmd) {
-    // Handle GPT's actual output format with 'action' field
-    if (cmd.action === 'format') return 'format';
-    if (cmd.action === 'validate') return 'validation';
-    if (cmd.action === 'formula') return 'formula';
+    // Handle GPT's various output formats - prioritize action field
+    if (cmd.action) {
+      if (cmd.action === 'format' || cmd.action === 'style') return 'format';
+      if (cmd.action === 'validate' || cmd.action === 'validation') return 'validation';
+      if (cmd.action === 'formula' || cmd.action === 'calculate') return 'formula';
+      if (cmd.action === 'conditional_format') return 'conditional_format';
+    }
     
-    // Handle traditional format
+    // Handle type field variations
+    if (cmd.type) {
+      if (cmd.type === 'format' || cmd.type === 'style') return 'format';
+      if (cmd.type === 'validation' || cmd.type === 'validate') return 'validation';
+      if (cmd.type === 'formula' || cmd.type === 'calculate') return 'formula';
+      if (cmd.type === 'conditional_format') return 'conditional_format';
+    }
+    
+    // Infer from content structure
     if (cmd.formula) return 'formula';
-    if (cmd.format || cmd.numberFormat) return 'format';
+    if (cmd.numberFormat) return 'numberFormat'; // Handle numberFormat separately
+    if (cmd.format || cmd.style) return 'format';
     if (cmd.validation || cmd.values) return 'validation';
     if (cmd.rule && cmd.range) return 'conditional_format';
     
@@ -358,18 +1245,130 @@ class DynamicExcelGenerator {
   // Apply bold formatting to a range
   applyBoldFormatting(worksheet, range) {
     try {
-      const [start, end] = range.split(':');
-      const startCell = worksheet.getCell(start);
-      const endCell = worksheet.getCell(end || start);
+      // Fix single column references
+      range = this.fixColumnReference(range);
       
-      for (let r = startCell.row; r <= endCell.row; r++) {
-        for (let c = startCell.col; c <= endCell.col; c++) {
-          const cell = worksheet.getCell(r, c);
-          cell.font = { ...cell.font, bold: true };
+      // Handle column ranges
+      if (range && range.includes(':')) {
+        const [start, end] = range.split(':');
+        
+        // If it's a column range like "C:C" or "C:D"
+        if (start.match(/^[A-Z]+$/) && end.match(/^[A-Z]+$/)) {
+          // Apply to entire columns - use a reasonable range like first 1000 rows
+          const startCol = start.charCodeAt(0) - 65 + 1; // A=1, B=2, etc.
+          const endCol = end.charCodeAt(0) - 65 + 1;
+          
+          for (let r = 1; r <= 1000; r++) { // Apply to first 1000 rows
+            for (let c = startCol; c <= endCol; c++) {
+              const cell = worksheet.getCell(r, c);
+              cell.font = { ...cell.font, bold: true };
+            }
+          }
+        } else {
+          // Cell range like "C1:D10"
+          const startCell = worksheet.getCell(start);
+          const endCell = worksheet.getCell(end || start);
+          
+          for (let r = startCell.row; r <= endCell.row; r++) {
+            for (let c = startCell.col; c <= endCell.col; c++) {
+              const cell = worksheet.getCell(r, c);
+              cell.font = { ...cell.font, bold: true };
+            }
+          }
         }
+      } else {
+        // Single cell
+        const cell = worksheet.getCell(range);
+        cell.font = { ...cell.font, bold: true };
       }
     } catch (error) {
-      console.error('Bold formatting error:', error);
+      console.error('Bold formatting error:', error, 'Range:', range);
+    }
+  }
+
+  // Apply general formatting to a range
+  applyFormatToRange(worksheet, range, format) {
+    try {
+      // Fix single column references
+      range = this.fixColumnReference(range);
+      
+      // Handle column ranges
+      if (range && range.includes(':')) {
+        const [start, end] = range.split(':');
+        
+        // If it's a column range like "C:C" or "C:D"
+        if (start.match(/^[A-Z]+$/) && end.match(/^[A-Z]+$/)) {
+          // Apply to entire columns - use a reasonable range like first 1000 rows
+          const startCol = start.charCodeAt(0) - 65 + 1; // A=1, B=2, etc.
+          const endCol = end.charCodeAt(0) - 65 + 1;
+          
+          for (let r = 1; r <= 1000; r++) { // Apply to first 1000 rows
+            for (let c = startCol; c <= endCol; c++) {
+              const cell = worksheet.getCell(r, c);
+              Object.assign(cell, format);
+            }
+          }
+        } else {
+          // Cell range like "C1:D10"
+          const startCell = worksheet.getCell(start);
+          const endCell = worksheet.getCell(end || start);
+          
+          for (let r = startCell.row; r <= endCell.row; r++) {
+            for (let c = startCell.col; c <= endCell.col; c++) {
+              const cell = worksheet.getCell(r, c);
+              Object.assign(cell, format);
+            }
+          }
+        }
+      } else {
+        // Single cell
+        const cell = worksheet.getCell(range);
+        Object.assign(cell, format);
+      }
+    } catch (error) {
+      console.error('Range formatting error:', error, 'Range:', range);
+    }
+  }
+
+  // Apply number formatting to a range
+  applyNumberFormatToRange(worksheet, range, numberFormat) {
+    try {
+      // Fix single column references
+      range = this.fixColumnReference(range);
+      
+      // Handle column ranges
+      if (range && range.includes(':')) {
+        const [start, end] = range.split(':');
+        
+        // If it's a column range like "C:C" or "C:D"
+        if (start.match(/^[A-Z]+$/) && end.match(/^[A-Z]+$/)) {
+          // Apply to entire columns
+          const startCol = start.charCodeAt(0) - 65 + 1; // A=1, B=2, etc.
+          const endCol = end.charCodeAt(0) - 65 + 1;
+          
+          for (let col = startCol; col <= endCol; col++) {
+            const column = worksheet.getColumn(col);
+            column.numFmt = numberFormat;
+          }
+        } else {
+          // Cell range like "C1:D10"
+          const startCell = worksheet.getCell(start);
+          const endCell = worksheet.getCell(end || start);
+          
+          for (let r = startCell.row; r <= endCell.row; r++) {
+            for (let c = startCell.col; c <= endCell.col; c++) {
+              const cell = worksheet.getCell(r, c);
+              cell.numFmt = numberFormat;
+            }
+          }
+        }
+      } else {
+        // Single cell
+        const cell = worksheet.getCell(range);
+        cell.numFmt = numberFormat;
+      }
+    } catch (error) {
+      console.error('Number formatting error:', error, 'Range:', range);
     }
   }
 

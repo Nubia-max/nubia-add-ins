@@ -9,6 +9,10 @@ class FinancialIntelligenceService {
       throw new Error('OPENAI_API_KEY environment variable is required. Please set it in your .env file.');
     }
     
+    if (!LEGENDARY_NUBIA_SYSTEM_PROMPT) {
+      throw new Error('LEGENDARY_NUBIA_SYSTEM_PROMPT is not properly exported from systemPrompts.js');
+    }
+    
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
       timeout: 60000
@@ -17,6 +21,10 @@ class FinancialIntelligenceService {
 
   // LEGENDARY NUBIA: Let GPT decide everything, always temperature 0.1
   async processFinancialCommand(message, options = {}) {
+    if (!message || typeof message !== 'string' || message.trim() === '') {
+      throw new Error('Message parameter is required and must be a non-empty string');
+    }
+
     const maxRetries = 3;
     let attempt = 0;
 
@@ -143,7 +151,7 @@ Please correct the structure and ensure all required fields are present.`;
             content: retryPrompt 
           }
         ],
-        max_tokens: 4000
+        max_tokens: 20000
       });
 
       const raw = response.choices[0].message.content || '';

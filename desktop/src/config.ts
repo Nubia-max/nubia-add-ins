@@ -38,8 +38,8 @@ export const config = {
   
   ai: {
     defaultModel: 'gpt-4o',
-    maxTokens: 1000,
-    temperature: 0.7,
+    maxTokens: 8000,
+    temperature: 0.1,
     enableMarkdown: true,
     enableCodeHighlighting: true
   },
