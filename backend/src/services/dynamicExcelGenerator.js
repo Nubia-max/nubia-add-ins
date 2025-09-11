@@ -33,6 +33,8 @@ class DynamicExcelGenerator {
       
       // First, extract unique sheet names from commands to understand GPT's intent
       const commandSheetNames = [];
+      const sheetNameMapping = new Map(); // Track original sheet names to actual worksheet names
+      
       if (structure.commands) {
         structure.commands.forEach(cmd => {
           if (cmd.sheet && !commandSheetNames.includes(cmd.sheet)) {
@@ -41,7 +43,7 @@ class DynamicExcelGenerator {
         });
       }
       
-      console.log(`📋 GPT intended sheet names: ${commandSheetNames.join(', ')}`);
+      console.log(`📋 GPT intended sheet names from commands: ${commandSheetNames.join(', ')}`);
       
       // Execute EXACTLY what GPT specified - no defaults, no fallbacks
       for (let i = 0; i < structure.workbook.length; i++) {
@@ -55,12 +57,31 @@ class DynamicExcelGenerator {
           title: sheet.title
         }));
         
-        // If no name provided, use the intended name from commands (in order)
-        if (!sheetName && commandSheetNames[i]) {
-          sheetName = commandSheetNames[i];
-          console.log(`📋 Using command-inferred name: "${sheetName}" for sheet ${i}`);
-        } else if (!sheetName) {
-          sheetName = `Sheet${i + 1}`;
+        // If no name provided, prioritize command names over generic names
+        if (!sheetName) {
+          if (commandSheetNames[i]) {
+            sheetName = commandSheetNames[i];
+            console.log(`📋 Using command-inferred name: "${sheetName}" for sheet ${i}`);
+          } else {
+            sheetName = `Sheet${i + 1}`;
+          }
+        }
+        
+        // Sanitize the sheet name for Excel compatibility
+        if (sheetName) {
+          const originalName = sheetName;
+          sheetName = this.sanitizeWorksheetName(sheetName);
+          if (originalName !== sheetName) {
+            console.log(`🔧 Sanitized sheet name: "${originalName}" → "${sheetName}"`);
+            // Update mapping to use sanitized name
+            sheetNameMapping.set(originalName, sheetName);
+          }
+        }
+        
+        // Store the mapping for command reference correction
+        if (commandSheetNames[i] && commandSheetNames[i] !== sheetName) {
+          sheetNameMapping.set(commandSheetNames[i], sheetName);
+          console.log(`📋 Mapping command sheet "${commandSheetNames[i]}" → actual sheet "${sheetName}"`);
         }
         
         const worksheet = workbook.addWorksheet(sheetName);
@@ -80,8 +101,11 @@ class DynamicExcelGenerator {
       
       // Execute commands exactly as GPT specified
       if (structure.commands) {
-        this.executeCommandsAsSpecified(workbook, structure.commands);
+        this.executeCommandsAsSpecified(workbook, structure.commands, sheetNameMapping);
       }
+      
+      // Ensure ALL worksheets have basic formatting if GPT missed any
+      this.ensureAllWorksheetsFormatted(workbook);
       
       // Save and open
       await workbook.xlsx.writeFile(filepath);
@@ -255,7 +279,7 @@ class DynamicExcelGenerator {
   }
 
   // Execute commands exactly as GPT specified
-  executeCommandsAsSpecified(workbook, commands) {
+  executeCommandsAsSpecified(workbook, commands, sheetNameMapping = new Map()) {
   if (!commands || !Array.isArray(commands)) return;
 
   console.log(`📝 Executing ${commands.length} GPT commands`);
@@ -269,210 +293,266 @@ class DynamicExcelGenerator {
         continue;
       }
       
-      const worksheet = cmd.sheet || cmd.target ? 
-        workbook.getWorksheet(cmd.sheet || cmd.target) : 
-        workbook.worksheets[0];
-      
-      if (!worksheet) {
-        console.warn(`❌ Worksheet not found: ${cmd.sheet || cmd.target}`);
-        continue;
-      }
-      
-      // Fix single column references in the command before processing
-      if (cmd.range) {
-        const originalRange = cmd.range;
-        cmd.range = this.fixColumnReference(cmd.range);
-        if (originalRange !== cmd.range) {
-          console.log(`🔧 Fixed range: "${originalRange}" → "${cmd.range}"`);
+      // If command targets a specific sheet, use that sheet
+      if (cmd.sheet || cmd.target) {
+        let worksheetName = cmd.sheet || cmd.target;
+        
+        // Apply sheet name mapping if available
+        if (sheetNameMapping.has(worksheetName)) {
+          const originalName = worksheetName;
+          worksheetName = sheetNameMapping.get(worksheetName);
+          console.log(`📋 Mapped command sheet name: "${originalName}" → "${worksheetName}"`);
         }
-      }
-      if (cmd.columns) {
-        const originalColumns = cmd.columns;
-        cmd.columns = this.fixColumnReference(cmd.columns);
-        if (originalColumns !== cmd.columns) {
-          console.log(`🔧 Fixed columns: "${originalColumns}" → "${cmd.columns}"`);
+        
+        let worksheet = workbook.getWorksheet(worksheetName);
+        
+        if (!worksheet) {
+          // Try to find worksheet by partial match, exact match ignoring case, or index
+          const allSheets = workbook.worksheets;
+          
+          // First try exact match ignoring case
+          let matchedSheet = allSheets.find(ws => 
+            ws.name.toLowerCase() === worksheetName?.toLowerCase()
+          );
+          
+          // Then try partial match
+          if (!matchedSheet) {
+            matchedSheet = allSheets.find(ws => 
+              ws.name.toLowerCase().includes(worksheetName?.toLowerCase() || '') ||
+              worksheetName?.toLowerCase().includes(ws.name.toLowerCase())
+            );
+          }
+          
+          // Finally try by index if worksheetName is a number or "Sheet1", "Sheet2" pattern
+          if (!matchedSheet) {
+            const sheetIndex = parseInt(worksheetName?.replace(/[^\d]/g, '')) - 1;
+            if (!isNaN(sheetIndex) && sheetIndex >= 0 && sheetIndex < allSheets.length) {
+              matchedSheet = allSheets[sheetIndex];
+            }
+          }
+          
+          if (matchedSheet) {
+            console.log(`🔄 Using match: "${matchedSheet.name}" for command targeting "${worksheetName}"`);
+            worksheet = matchedSheet;
+          } else {
+            console.warn(`❌ Worksheet not found: "${worksheetName}". Available sheets: ${allSheets.map(ws => ws.name).join(', ')}`);
+            continue;
+          }
         }
-      }
-      
-      commandType = cmd.type || this.inferCommandType(cmd);
-      
-      switch(commandType) {
-        case 'format':
-          this.applyFormat(worksheet, cmd);
-          break;
-
-        case 'formula':
-          this.applyFormula(worksheet, cmd);
-          break;
-
-        case 'merge':
-          this.applyMerge(worksheet, cmd);
-          break;
-
-        case 'validation':
-          this.applyValidation(worksheet, cmd);
-          break;
-
-        case 'conditional_format':
-          this.applyConditionalFormat(worksheet, cmd);
-          break;
-
-        case 'freeze_panes':
-          this.applyFreezePanes(worksheet, cmd);
-          break;
-
-        case 'column_width':
-          this.applyColumnWidth(worksheet, cmd);
-          break;
-
-        case 'row_height':
-          this.applyRowHeight(worksheet, cmd);
-          break;
-
-        case 'print_setup':
-          this.applyPrintSetup(worksheet, cmd);
-          break;
-
-        case 'header_footer':
-          this.applyHeaderFooter(worksheet, cmd);
-          break;
-
-        case 'protection':
-          this.applyProtection(worksheet, cmd);
-          break;
-
-        case 'filter':
-          this.applyFilter(worksheet, cmd);
-          break;
-
-        case 'sort':
-          this.applySort(worksheet, cmd);
-          break;
-
-        case 'comment':
-          this.applyComment(worksheet, cmd);
-          break;
-
-        case 'hyperlink':
-          this.applyHyperlink(worksheet, cmd);
-          break;
-
-        case 'image':
-          this.applyImage(workbook, worksheet, cmd);
-          break;
-
-        case 'chart':
-          this.applyChart(worksheet, cmd);
-          break;
-
-        case 'table':
-          this.applyTable(worksheet, cmd);
-          break;
-
-        case 'pivot':
-          this.applyPivot(worksheet, cmd);
-          break;
-
-        case 'sparkline':
-          this.applySparkline(worksheet, cmd);
-          break;
-
-        case 'data_bar':
-          this.applyDataBar(worksheet, cmd);
-          break;
-
-        case 'icon_set':
-          this.applyIconSet(worksheet, cmd);
-          break;
-
-        case 'color_scale':
-          this.applyColorScale(worksheet, cmd);
-          break;
-
-        case 'group':
-          this.applyGrouping(worksheet, cmd);
-          break;
-
-        case 'outline':
-          this.applyOutline(worksheet, cmd);
-          break;
-
-        case 'subtotal':
-          this.applySubtotal(worksheet, cmd);
-          break;
-
-        case 'page_break':
-          this.applyPageBreak(worksheet, cmd);
-          break;
-
-        case 'background':
-          this.applyBackground(worksheet, cmd);
-          break;
-
-        case 'tab_color':
-          this.applyTabColor(worksheet, cmd);
-          break;
-
-        case 'split_panes':
-          this.applySplitPanes(worksheet, cmd);
-          break;
-
-        case 'zoom':
-          this.applyZoom(worksheet, cmd);
-          break;
-
-        case 'rich_text':
-          this.applyRichText(worksheet, cmd);
-          break;
-
-        case 'gradient':
-          this.applyGradient(worksheet, cmd);
-          break;
-
-        case 'pattern':
-          this.applyPattern(worksheet, cmd);
-          break;
-
-        case 'text_rotation':
-          this.applyTextRotation(worksheet, cmd);
-          break;
-
-        case 'indent':
-          this.applyIndent(worksheet, cmd);
-          break;
-
-        case 'wrap_text':
-          this.applyWrapText(worksheet, cmd);
-          break;
-
-        case 'shrink_to_fit':
-          this.applyShrinkToFit(worksheet, cmd);
-          break;
-
-        case 'custom_format':
-          this.applyCustomFormat(worksheet, cmd);
-          break;
-
-        case 'named_range':
-          this.applyNamedRange(workbook, worksheet, cmd);
-          break;
-
-        case 'data_validation':
-          this.applyDataValidation(worksheet, cmd);
-          break;
-
-        case 'cell_style':
-          this.applyCellStyle(worksheet, cmd);
-          break;
-
-        default:
-          console.log(`❓ Unhandled command type: ${commandType}`, cmd);
+        
+        // Apply command to specific worksheet
+        this.executeCommandOnWorksheet(worksheet, cmd, commandType, workbook);
+      } else {
+        // If no sheet specified, apply to ALL worksheets for consistent formatting
+        console.log(`📋 Applying command to all ${workbook.worksheets.length} worksheets`);
+        workbook.worksheets.forEach((worksheet, index) => {
+          console.log(`📋 Applying to worksheet ${index + 1}: "${worksheet.name}"`);
+          this.executeCommandOnWorksheet(worksheet, cmd, commandType, workbook);
+        });
       }
     } catch (error) {
       console.error(`❌ Command execution error: ${error.message}`);
       console.error(`❌ Failed command:`, JSON.stringify(cmd, null, 2));
       console.error(`❌ Command type: ${commandType}`);
     }
+  }
+}
+
+// New helper method to execute command on a specific worksheet
+executeCommandOnWorksheet(worksheet, cmd, commandType, workbook) {
+  try {
+    // Fix single column references in the command before processing
+    if (cmd.range) {
+      const originalRange = cmd.range;
+      cmd.range = this.fixColumnReference(cmd.range);
+      if (originalRange !== cmd.range) {
+        console.log(`🔧 Fixed range: "${originalRange}" → "${cmd.range}"`);
+      }
+    }
+    if (cmd.columns) {
+      const originalColumns = cmd.columns;
+      cmd.columns = this.fixColumnReference(cmd.columns);
+      if (originalColumns !== cmd.columns) {
+        console.log(`🔧 Fixed columns: "${originalColumns}" → "${cmd.columns}"`);
+      }
+    }
+    
+    commandType = cmd.type || this.inferCommandType(cmd);
+    
+    switch(commandType) {
+      case 'format':
+        this.applyFormat(worksheet, cmd);
+        break;
+
+      case 'formula':
+        this.applyFormula(worksheet, cmd);
+        break;
+
+      case 'merge':
+        this.applyMerge(worksheet, cmd);
+        break;
+
+      case 'validation':
+        this.applyValidation(worksheet, cmd);
+        break;
+
+      case 'conditional_format':
+        this.applyConditionalFormat(worksheet, cmd);
+        break;
+
+      case 'freeze_panes':
+        this.applyFreezePanes(worksheet, cmd);
+        break;
+
+      case 'column_width':
+        this.applyColumnWidth(worksheet, cmd);
+        break;
+
+      case 'row_height':
+        this.applyRowHeight(worksheet, cmd);
+        break;
+
+      case 'print_setup':
+        this.applyPrintSetup(worksheet, cmd);
+        break;
+
+      case 'header_footer':
+        this.applyHeaderFooter(worksheet, cmd);
+        break;
+
+      case 'protection':
+        this.applyProtection(worksheet, cmd);
+        break;
+
+      case 'filter':
+        this.applyFilter(worksheet, cmd);
+        break;
+
+      case 'sort':
+        this.applySort(worksheet, cmd);
+        break;
+
+      case 'comment':
+        this.applyComment(worksheet, cmd);
+        break;
+
+      case 'hyperlink':
+        this.applyHyperlink(worksheet, cmd);
+        break;
+
+      case 'image':
+        this.applyImage(workbook, worksheet, cmd);
+        break;
+
+      case 'chart':
+        this.applyChart(worksheet, cmd);
+        break;
+
+      case 'table':
+        this.applyTable(worksheet, cmd);
+        break;
+
+      case 'pivot':
+        this.applyPivot(worksheet, cmd);
+        break;
+
+      case 'sparkline':
+        this.applySparkline(worksheet, cmd);
+        break;
+
+      case 'data_bar':
+        this.applyDataBar(worksheet, cmd);
+        break;
+
+      case 'icon_set':
+        this.applyIconSet(worksheet, cmd);
+        break;
+
+      case 'color_scale':
+        this.applyColorScale(worksheet, cmd);
+        break;
+
+      case 'group':
+        this.applyGrouping(worksheet, cmd);
+        break;
+
+      case 'outline':
+        this.applyOutline(worksheet, cmd);
+        break;
+
+      case 'subtotal':
+        this.applySubtotal(worksheet, cmd);
+        break;
+
+      case 'page_break':
+        this.applyPageBreak(worksheet, cmd);
+        break;
+
+      case 'background':
+        this.applyBackground(worksheet, cmd);
+        break;
+
+      case 'tab_color':
+        this.applyTabColor(worksheet, cmd);
+        break;
+
+      case 'split_panes':
+        this.applySplitPanes(worksheet, cmd);
+        break;
+
+      case 'zoom':
+        this.applyZoom(worksheet, cmd);
+        break;
+
+      case 'rich_text':
+        this.applyRichText(worksheet, cmd);
+        break;
+
+      case 'gradient':
+        this.applyGradient(worksheet, cmd);
+        break;
+
+      case 'pattern':
+        this.applyPattern(worksheet, cmd);
+        break;
+
+      case 'text_rotation':
+        this.applyTextRotation(worksheet, cmd);
+        break;
+
+      case 'indent':
+        this.applyIndent(worksheet, cmd);
+        break;
+
+      case 'wrap_text':
+        this.applyWrapText(worksheet, cmd);
+        break;
+
+      case 'shrink_to_fit':
+        this.applyShrinkToFit(worksheet, cmd);
+        break;
+
+      case 'custom_format':
+        this.applyCustomFormat(worksheet, cmd);
+        break;
+
+      case 'named_range':
+        this.applyNamedRange(workbook, worksheet, cmd);
+        break;
+
+      case 'data_validation':
+        this.applyDataValidation(worksheet, cmd);
+        break;
+
+      case 'cell_style':
+        this.applyCellStyle(worksheet, cmd);
+        break;
+
+      default:
+        console.log(`❓ Unhandled command type: ${commandType}`, cmd);
+    }
+  } catch (error) {
+    console.error(`❌ Command execution error on worksheet "${worksheet.name}":`, error.message);
   }
 }
 
@@ -1434,6 +1514,83 @@ applyCellStyle(worksheet, cmd) {
   getBasicWidth(header) {
     const length = String(header).length;
     return Math.max(10, Math.min(50, length + 5));
+  }
+
+  // Sanitize worksheet name for Excel compatibility
+  sanitizeWorksheetName(name) {
+    if (!name) return name;
+    
+    // Excel doesn't allow these characters: * ? : \ / [ ]
+    // Replace forward slash with dash, remove other invalid characters
+    return name
+      .replace(/\//g, '-')  // Replace / with -
+      .replace(/[*?:\\\[\]]/g, '')  // Remove other invalid characters
+      .substring(0, 31);  // Excel max worksheet name is 31 characters
+  }
+
+  // Ensure all worksheets have basic formatting
+  ensureAllWorksheetsFormatted(workbook) {
+    console.log(`🎨 Ensuring all ${workbook.worksheets.length} worksheets have formatting`);
+    
+    workbook.worksheets.forEach((worksheet, index) => {
+      const sheetName = worksheet.name;
+      console.log(`🎨 Checking formatting for "${sheetName}"`);
+      
+      // Check if this worksheet already has formatting by looking at header row
+      const headerRow = worksheet.getRow(1);
+      const hasFormatting = headerRow.font?.bold || headerRow.fill?.fgColor;
+      
+      if (!hasFormatting) {
+        console.log(`🎨 Applying missing formatting to "${sheetName}"`);
+        
+        // Get the range based on actual data
+        const lastRow = worksheet.actualRowCount || 10;
+        const lastCol = worksheet.actualColumnCount || 5;
+        const lastColLetter = String.fromCharCode(64 + lastCol); // A=65, so 64+1=A
+        
+        // Apply basic professional formatting
+        const basicCommands = [
+          {
+            type: "format",
+            sheet: sheetName,
+            range: `A1:${lastColLetter}1`,
+            font: { bold: true, color: "FFFFFF" },
+            fill: { color: "4472C4" }
+          },
+          {
+            type: "format",
+            sheet: sheetName,
+            range: `A1:${lastColLetter}${lastRow}`,
+            border: {
+              top: { style: "thin" },
+              bottom: { style: "thin" },
+              left: { style: "thin" },
+              right: { style: "thin" }
+            }
+          },
+          {
+            type: "freeze_panes",
+            sheet: sheetName,
+            row: 1
+          },
+          {
+            type: "column_width",
+            sheet: sheetName,
+            columns: `A:${lastColLetter}`,
+            width: "auto"
+          }
+        ];
+        
+        // Apply the commands
+        basicCommands.forEach(cmd => {
+          try {
+            this.executeCommandOnWorksheet(worksheet, cmd, cmd.type, workbook);
+          } catch (error) {
+            console.warn(`⚠️ Failed to apply basic formatting to ${sheetName}:`, error.message);
+          }
+        });
+      }
+    });
   }
 
   // Mechanical file opening - no changes needed

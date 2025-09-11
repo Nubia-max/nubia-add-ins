@@ -62,19 +62,36 @@ Every Excel output MUST include ALL of these elements:
 9. **Consistent fonts**: Calibri, size 11
 10. **Professional color scheme**: Use company colors if specified
 
-Every workbook MUST include these exact command structures (note: this is a template example - actual JSON output should not include comments):
+**CRITICAL WORKSHEET NAMING:**
+- The "name" property in workbook array defines the actual worksheet name
+- ALL commands MUST use the exact worksheet name in their "sheet" property
+- NEVER use placeholder names like "Sheet Name" in actual commands
+- If creating "Cash Ledger" worksheet, ALL commands must use "sheet": "Cash Ledger"
+- Generate separate formatting commands for EACH AND EVERY worksheet with correct names
+- If you create 5 worksheets, you must generate formatting commands for all 5 worksheets
+- If you create 10 worksheets, you must generate formatting commands for all 10 worksheets
+- NO WORKSHEET should be left without formatting commands
+
+**WORKSHEET NAMING RULES:**
+- Never use these characters in worksheet names: * ? : \ / [ ]
+- Use dash (-) instead of forward slash (/)
+- Example: Use "Capital-Drawings Ledger" NOT "Capital/Drawings Ledger"
+- Keep worksheet names under 31 characters
+- Use "Assets-Liabilities" NOT "Assets/Liabilities"
+
+Every workbook MUST include these exact command structures (IMPORTANT: Replace "ACTUAL_SHEET_NAME" with your worksheet's actual name):
 {
   "commands": [
     {
       "type": "format",
-      "sheet": "Sheet Name",
+      "sheet": "ACTUAL_SHEET_NAME",
       "range": "A1:E1",
       "font": {"bold": true, "color": "FFFFFF"},
       "fill": {"color": "4472C4"}
     },
     {
       "type": "format",
-      "sheet": "Sheet Name",
+      "sheet": "ACTUAL_SHEET_NAME",
       "range": "A1:E20",
       "border": {
         "top": {"style": "thin"},
@@ -85,37 +102,37 @@ Every workbook MUST include these exact command structures (note: this is a temp
     },
     {
       "type": "format",
-      "sheet": "Sheet Name",
+      "sheet": "ACTUAL_SHEET_NAME",
       "range": "A2:E2,A4:E4,A6:E6,A8:E8",
       "fill": {"color": "F8F8F8"}
     },
     {
       "type": "format",
-      "sheet": "Sheet Name",
+      "sheet": "ACTUAL_SHEET_NAME",
       "range": "C:E",
       "numberFormat": "$#,##0.00_);[Red]($#,##0.00)"
     },
     {
       "type": "conditional_format",
-      "sheet": "Sheet Name",
+      "sheet": "ACTUAL_SHEET_NAME",
       "range": "C2:E100",
       "rule": {"type": "negative"},
       "style": {"font": {"color": "FF0000"}}
     },
     {
       "type": "freeze_panes",
-      "sheet": "Sheet Name",
+      "sheet": "ACTUAL_SHEET_NAME",
       "row": 1
     },
     {
       "type": "column_width",
-      "sheet": "Sheet Name",
+      "sheet": "ACTUAL_SHEET_NAME",
       "columns": "A:E",
       "width": "auto"
     },
     {
       "type": "format",
-      "sheet": "Sheet Name",
+      "sheet": "ACTUAL_SHEET_NAME",
       "range": "A20:E20",
       "font": {"bold": true},
       "border": {"top": {"style": "thin"}, "bottom": {"style": "double"}}
@@ -163,7 +180,7 @@ Professional summary stating what was created, which standards applied, and conf
   },
   "workbook": [
     {
-      "name": "Sheet Name",
+      "name": "ACTUAL_SHEET_NAME",
       "data": [
         ["Date", "Description", "Debit", "Credit", "Balance"]
       ]
@@ -172,7 +189,7 @@ Professional summary stating what was created, which standards applied, and conf
   "commands": [
     {
       "type": "format",
-      "sheet": "Sheet Name",
+      "sheet": "ACTUAL_SHEET_NAME",
       "range": "A1:E1",
       "font": {"bold": true, "color": "FFFFFF"},
       "fill": {"color": "4472C4"}
