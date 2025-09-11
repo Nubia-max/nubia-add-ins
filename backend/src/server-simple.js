@@ -393,7 +393,7 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
         }
       ],
       temperature: Number(process.env.LLM_TEMPERATURE ?? '0.1'),
-      max_tokens: 20000
+      max_tokens: 16000
     });
     
     const rawResponse = response.choices[0].message.content || '';

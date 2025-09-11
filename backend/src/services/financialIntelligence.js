@@ -45,7 +45,7 @@ class FinancialIntelligenceService {
               content: message 
             }
           ],
-          max_tokens: 8000
+          max_tokens: 16384
         });
 
         const raw = response.choices[0].message.content || '';
@@ -151,7 +151,7 @@ Please correct the structure and ensure all required fields are present.`;
             content: retryPrompt 
           }
         ],
-        max_tokens: 20000
+        max_tokens: 16000
       });
 
       const raw = response.choices[0].message.content || '';
