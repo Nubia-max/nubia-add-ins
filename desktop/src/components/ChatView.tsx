@@ -49,6 +49,7 @@ const ChatView: React.FC<ChatViewProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [isResettingConversation, setIsResettingConversation] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -71,7 +72,7 @@ const ChatView: React.FC<ChatViewProps> = ({
         setIsProcessing(false);
         
         const completionMessage: Message = {
-          id: Date.now().toString(),
+          id: `system_${Date.now()}`,
           type: 'system',
           content: result.success 
             ? `✅ ${result.message || 'Task completed successfully!'}` 
@@ -105,11 +106,11 @@ const ChatView: React.FC<ChatViewProps> = ({
     const messageContent = inputValue.trim() || (hasFiles ? '[Files uploaded]' : '');
     
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: `user_${Date.now()}`,
       type: 'user',
       content: messageContent + (hasFiles ? ` (${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''})` : ''),
       timestamp: new Date(),
-      filesProcessed: selectedFiles.length
+      filesProcessed: hasFiles ? selectedFiles.length : undefined
     };
 
     setMessages(prev => [...prev, userMessage]);
@@ -125,7 +126,7 @@ const ChatView: React.FC<ChatViewProps> = ({
     if (!canUseAutomation) {
       // Show upgrade prompt instead of executing task
       const upgradeMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: `system_${Date.now() + 1}`,
         type: 'system',
         content: `You've used all ${usageStatus?.limit || 10} free automations. Upgrade to continue:`,
         timestamp: new Date(),
@@ -163,7 +164,7 @@ const ChatView: React.FC<ChatViewProps> = ({
       
       // Always show the conversational message first
       const responseMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: `assistant_${Date.now() + 1}`,
         type: 'assistant',
         content: result.message,
         timestamp: new Date(),
@@ -178,7 +179,7 @@ const ChatView: React.FC<ChatViewProps> = ({
         
         // Show Excel success message (file was already created by backend)
         const successMessage: Message = {
-          id: (Date.now() + 2).toString(),
+          id: `system_${Date.now() + 2}`,
           type: 'system',
           content: `✅ Excel file created: ${result.excelData.filename}`,
           timestamp: new Date(),
@@ -197,7 +198,7 @@ const ChatView: React.FC<ChatViewProps> = ({
       setUploadProgress(0);
       
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: `system_${Date.now() + 1}`,
         type: 'system',
         content: `❌ Failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         timestamp: new Date()
@@ -223,6 +224,52 @@ const ChatView: React.FC<ChatViewProps> = ({
   const handleMinimize = () => {
     if (window.electronAPI) {
       window.electronAPI.minimizeToTray();
+    }
+  };
+
+  const handleNewConversation = async () => {
+    try {
+      setIsResettingConversation(true);
+      
+      // Clear conversation history on backend
+      await cloudApi.clearConversationHistory();
+      
+      // Reset local messages to initial state
+      setMessages([
+        {
+          id: '1',
+          type: 'assistant',
+          content: "Hi! I'm Nubia, your Excel automation assistant. I've started a fresh conversation. Tell me what you'd like me to do in Excel, and I'll handle it for you!",
+          timestamp: new Date()
+        }
+      ]);
+      
+      // Close settings panel
+      setShowSettings(false);
+      
+      // Show success feedback
+      setTimeout(() => {
+        const successMessage: Message = {
+          id: `system_${Date.now()}`,
+          type: 'system',
+          content: '✅ Started new conversation. Previous context cleared.',
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, successMessage]);
+      }, 100);
+      
+    } catch (error) {
+      console.error('❌ Failed to clear conversation:', error);
+      
+      const errorMessage: Message = {
+        id: `system_${Date.now()}`,
+        type: 'system',
+        content: '❌ Failed to clear conversation. Please try again.',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsResettingConversation(false);
     }
   };
 
@@ -401,6 +448,34 @@ const ChatView: React.FC<ChatViewProps> = ({
               <button className="close-settings-btn" onClick={() => setShowSettings(false)}>×</button>
             </div>
             <div className="settings-content">
+              <div className="conversation-management">
+                <h4>Conversation</h4>
+                <div className="conversation-actions">
+                  <button 
+                    className={`new-conversation-btn ${isResettingConversation ? 'loading' : ''}`}
+                    onClick={handleNewConversation}
+                    disabled={isResettingConversation}
+                  >
+                    {isResettingConversation ? (
+                      <>
+                        <div className="spinner-small"></div>
+                        Clearing...
+                      </>
+                    ) : (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                          <path d="M8 2V14M2 8H14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                        </svg>
+                        New Conversation
+                      </>
+                    )}
+                  </button>
+                  <p className="conversation-help-text">
+                    Start fresh and clear all previous context. Nubia won't remember previous Excel files or conversation history.
+                  </p>
+                </div>
+              </div>
+              
               <div className="usage-stats">
                 <h4>Usage Statistics</h4>
                 <div className="stat-item">

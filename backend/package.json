@@ -4,7 +4,7 @@
   "description": "Nubia Backend API",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon src/server.ts",
+    "dev": "nodemon",
     "build": "tsc",
     "start": "node dist/server.js",
     "db:migrate": "prisma migrate deploy",

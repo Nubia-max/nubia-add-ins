@@ -128,6 +128,14 @@ export class FileUploadService {
         throw new Error('Message or files are required');
       }
 
+      // Check if cloudApi is available and authenticated
+      if (!(await cloudApi.isAuthenticated())) {
+        throw new Error('Please log in to upload files');
+      }
+
+      // Use the proper file upload endpoint
+      const baseUrl = process.env.NODE_ENV === 'production' ? 'https://api.nubia.ai' : 'http://localhost:3001';
+      
       const formData = new FormData();
       
       // Add message
@@ -139,14 +147,9 @@ export class FileUploadService {
       files.forEach((selectedFile) => {
         formData.append('files', selectedFile.file);
       });
+      
+      formData.append('includeContext', 'true');
 
-      // Check if cloudApi is available and authenticated
-      if (!cloudApi.isAuthenticated()) {
-        throw new Error('Please log in to upload files');
-      }
-
-      // Use the existing cloudApi but with the new endpoint  
-      const baseUrl = process.env.NODE_ENV === 'production' ? 'https://api.nubia.ai' : 'http://localhost:3001';
       const response = await fetch(`${baseUrl}/api/chat/with-files`, {
         method: 'POST',
         headers: {
@@ -162,25 +165,21 @@ export class FileUploadService {
           const errorData = await response.json();
           errorMessage = errorData.error || errorData.message || errorMessage;
         } catch (e) {
-          // If we can't parse the error response, use status text
           errorMessage = response.statusText || `HTTP ${response.status}`;
-        }
-
-        // Provide user-friendly error messages
-        if (response.status === 401) {
-          errorMessage = 'Please log in to upload files';
-        } else if (response.status === 413) {
-          errorMessage = 'File size too large. Please reduce file size and try again.';
-        } else if (response.status === 429) {
-          errorMessage = 'Too many requests. Please wait a moment and try again.';
-        } else if (response.status >= 500) {
-          errorMessage = 'Server error. Please try again later.';
         }
 
         throw new Error(errorMessage);
       }
 
-      return await response.json();
+      const result = await response.json();
+
+      return {
+        success: true,
+        message: result.message || 'Files processed successfully',
+        type: result.type || 'chat',
+        excelData: result.excelData,
+        filesProcessed: files.length
+      };
       
     } catch (error) {
       console.error('File upload error:', error);

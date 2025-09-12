@@ -154,12 +154,23 @@ class CloudApiService {
     });
   }
 
-  // Universal chat endpoint - GPT decides everything
-  async sendChatMessage(message: string, context: any = {}) {
+  // Universal chat endpoint - GPT decides everything with conversation memory
+  async sendChatMessage(message: string, includeContext: boolean = true) {
     return this.request('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, context }),
+      body: JSON.stringify({ message, includeContext }),
     });
+  }
+
+  // Conversation memory management
+  async clearConversationHistory() {
+    return this.request('/api/chat/clear', {
+      method: 'POST',
+    });
+  }
+
+  async getConversationHistory() {
+    return this.request('/api/chat/history');
   }
 
   // Excel Generation with complete GPT freedom
@@ -229,7 +240,20 @@ class CloudApiService {
     if (!this.token) {
       this.token = await this.getStoredToken();
     }
-    return !!this.token;
+    
+    if (!this.token) {
+      return false;
+    }
+    
+    // Validate token with backend
+    try {
+      await this.getProfile();
+      return true;
+    } catch (error) {
+      // Token is invalid, clear it
+      await this.clearStoredToken();
+      return false;
+    }
   }
 
   getToken(): string | null {

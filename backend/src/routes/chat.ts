@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
-import { handleUniversalChat, handleUniversalChatWithFiles } from '../controllers/chatController';
+import { handleUniversalChat, handleUniversalChatWithFiles, clearConversation, getDocumentContext, testNubia } from '../controllers/chatController';
 import { auth } from '../middleware/auth';
 import { validateRequest } from '../middleware/validateRequest';
 import { fileUploadConfig } from '../services/fileProcessingService';
@@ -21,5 +21,14 @@ router.post('/', auth, chatMessageValidation, validateRequest, handleUniversalCh
 
 // File upload chat endpoint
 router.post('/with-files', auth, fileUploadConfig.array('files', 5), handleUniversalChatWithFiles);
+
+// Clear conversation history
+router.post('/clear', auth, clearConversation);
+
+// Get document context
+router.get('/documents', auth, getDocumentContext);
+
+// Test endpoint for Nubia verification (temporarily without auth for testing)
+router.post('/test', testNubia);
 
 export { router as chatRoutes };

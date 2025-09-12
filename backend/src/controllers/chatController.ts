@@ -3,18 +3,390 @@ import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
 import FileProcessingService from '../services/fileProcessingService';
 
+// Enhanced conversation memory storage with file/image context
+interface UploadedDocument {
+  id: string;
+  filename: string;
+  type: string; // 'image', 'pdf', 'excel', etc.
+  extractedData: any; // Vision API data for images, parsed data for documents
+  uploadedAt: string;
+}
+
+interface ExtractedTotals {
+  documentId: string;
+  totals: Array<{
+    label: string;
+    value: number;
+    currency?: string;
+    category?: string;
+  }>;
+}
+
+interface EnhancedConversationHistory {
+  messages: any[];
+  lastExcelStructure: any;
+  uploadedDocuments: UploadedDocument[];
+  extractedTotals: ExtractedTotals[];
+}
+
+const conversationHistory = new Map<string, EnhancedConversationHistory>();
+
+// Helper function to generate unique message IDs
+function generateMessageId(): string {
+  return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Helper function to generate unique document IDs
+function generateDocumentId(): string {
+  return `doc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Enhanced context builder with file/image context
+function buildContextFromHistory(history: EnhancedConversationHistory): string {
+  if (!history || (history.messages.length === 0 && history.uploadedDocuments.length === 0)) {
+    return '';
+  }
+
+  const lastExcelStructure = history.lastExcelStructure;
+  const recentMessages = history.messages.slice(-3); // Last 3 exchanges for context
+  const recentDocuments = history.uploadedDocuments.slice(-5); // Last 5 uploaded documents
+  
+  let context = '\n**CONVERSATION CONTEXT:**\n';
+  
+  // Previous Excel work context
+  if (lastExcelStructure) {
+    context += `PREVIOUS EXCEL WORK:
+- Last created: ${lastExcelStructure.meta?.mode || 'Financial document'}
+- Worksheets: ${lastExcelStructure.workbook?.map((w: any) => w.name).join(', ') || 'Unknown'}
+- Type: ${lastExcelStructure.meta?.framework || 'Financial analysis'}
+- Currency: ${lastExcelStructure.meta?.currency || 'USD'}
+
+`;
+  }
+
+  // Uploaded documents context
+  if (recentDocuments.length > 0) {
+    context += 'PREVIOUSLY UPLOADED DOCUMENTS:\n';
+    recentDocuments.forEach((doc, index) => {
+      context += `${index + 1}. ${doc.filename} (${doc.type}) - uploaded ${new Date(doc.uploadedAt).toLocaleDateString()}\n`;
+      
+      // Add extracted data summary
+      if (doc.extractedData) {
+        if (doc.type === 'image' && doc.extractedData.description) {
+          context += `   Vision Analysis: ${doc.extractedData.description.substring(0, 150)}${doc.extractedData.description.length > 150 ? '...' : ''}\n`;
+        }
+        if (doc.extractedData.totals && doc.extractedData.totals.length > 0) {
+          context += `   Key Values: ${doc.extractedData.totals.map((t: any) => `${t.label}: ${t.value}`).join(', ')}\n`;
+        }
+      }
+    });
+    context += '\n';
+  }
+
+  // Recent conversation context
+  if (recentMessages.length > 0) {
+    context += 'RECENT CONVERSATION:\n';
+    recentMessages.forEach((msg: any, index: number) => {
+      context += `${index + 1}. User: ${msg.userMessage.substring(0, 100)}${msg.userMessage.length > 100 ? '...' : ''}\n`;
+      context += `   Response: ${msg.gptResponse.substring(0, 100)}${msg.gptResponse.length > 100 ? '...' : ''}\n`;
+      if (msg.filesUploaded && msg.filesUploaded > 0) {
+        context += `   Files: ${msg.filesUploaded} file(s) uploaded\n`;
+      }
+      context += '\n';
+    });
+  }
+
+  context += `When users reference "previous work", "that document", "the image I uploaded", "change the value", "update that", or similar phrases, they refer to the context above. Use this information to understand their requests.\n\n`;
+  
+  return context;
+}
+
+// Enhanced context detection including document references
+function needsContext(message: string): boolean {
+  const contextCommands = [
+    /change .* to/i,
+    /update the/i,
+    /correct that/i,
+    /add another/i,
+    /remove the/i,
+    /show me .* instead/i,
+    /modify .*/i,
+    /adjust .*/i,
+    /fix .*/i,
+    /(that|this|previous|last) (document|file|excel|sheet|workbook|image|pdf)/i,
+    /from (before|earlier|previous)/i,
+    /(the|that) (image|picture|photo|screenshot) (I|you) uploaded/i,
+    /(the|that) (file|document) (I|you) (uploaded|attached|sent)/i,
+    /in the (previous|last|uploaded) (document|file|image)/i,
+    /based on (the|that) (image|document|file)/i,
+    /from the (uploaded|attached) (file|document|image)/i,
+    /(use|reference|check) (the|that) (previous|uploaded) (data|information|document)/i
+  ];
+  
+  return contextCommands.some(pattern => pattern.test(message));
+}
+
+// Document reference detection for contextual processing
+function detectDocumentReferences(message: string): Array<{ type: string; reference: string }> {
+  const references: Array<{ type: string; reference: string }> = [];
+  
+  const patterns = [
+    { regex: /(the|that) (image|picture|photo|screenshot)/i, type: 'image' },
+    { regex: /(the|that) (pdf|document)/i, type: 'document' },
+    { regex: /(the|that) (excel|spreadsheet)/i, type: 'excel' },
+    { regex: /uploaded (file|document|image)/i, type: 'uploaded_file' },
+    { regex: /previous (document|file|work)/i, type: 'previous_work' }
+  ];
+  
+  patterns.forEach(pattern => {
+    const match = message.match(pattern.regex);
+    if (match) {
+      references.push({
+        type: pattern.type,
+        reference: match[0]
+      });
+    }
+  });
+  
+  return references;
+}
+
+// Format conversation history for GPT messages
+function formatHistoryForGPT(messages: any[]): any[] {
+  const formatted: any[] = [];
+  messages.forEach(msg => {
+    formatted.push({ role: 'user', content: msg.userMessage });
+    formatted.push({ role: 'assistant', content: msg.gptResponse });
+  });
+  return formatted;
+}
+
 const prisma = new PrismaClient();
 
 // Import services - use correct names
 const FinancialIntelligenceService = require('../services/financialIntelligence');
 const DynamicExcelGenerator = require('../services/dynamicExcelGenerator');
 const LLMService = require('../services/llmService');
+const OpenAI = require('openai');
 
-// Initialize with prompt-native registry
+// Initialize services
 const llmService = new LLMService();
 const financialIntelligence = new FinancialIntelligenceService();
 const excelGenerator = new DynamicExcelGenerator(llmService);
 const fileProcessingService = new FileProcessingService();
+
+// Initialize OpenAI for Vision API
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// GPT Vision API integration for image data extraction
+async function extractImageData(file: Express.Multer.File): Promise<any> {
+  try {
+    let base64Image: string;
+    let mimeType = file.mimetype;
+    
+    // Handle both buffer and file path scenarios
+    if (file.buffer) {
+      // Memory storage - convert buffer to base64
+      base64Image = file.buffer.toString('base64');
+    } else if (file.path) {
+      // Disk storage - read file and convert to base64
+      const fs = require('fs');
+      const fileBuffer = fs.readFileSync(file.path);
+      base64Image = fileBuffer.toString('base64');
+    } else {
+      throw new Error('No file buffer or path available');
+    }
+    
+    const dataUrl = `data:${mimeType};base64,${base64Image}`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Analyze this image and extract any financial data, totals, values, or important information. Focus on:
+
+1. Any numerical values, amounts, totals, or calculations
+2. Financial terms, account names, or categories
+3. Dates, periods, or timeframes
+4. Table data, charts, or structured information
+5. Key insights or patterns
+
+Return the analysis in this JSON format:
+{
+  "description": "Brief description of what the image contains",
+  "totals": [
+    {
+      "label": "descriptive name",
+      "value": numerical_value,
+      "currency": "USD" (if applicable),
+      "category": "type of data"
+    }
+  ],
+  "insights": ["key insight 1", "key insight 2"],
+  "hasFinancialData": true/false
+}`
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: dataUrl,
+                detail: "high"
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: 1000,
+      temperature: 0.1
+    });
+
+    const content = response.choices[0].message.content;
+    try {
+      return JSON.parse(content!);
+    } catch (parseError) {
+      // If JSON parsing fails, return structured data anyway
+      return {
+        description: content,
+        totals: [],
+        insights: [],
+        hasFinancialData: false,
+        rawResponse: content
+      };
+    }
+  } catch (error) {
+    console.error('Vision API error:', error);
+    throw new Error('Failed to analyze image: ' + error.message);
+  }
+}
+
+// Enhanced file context builder for chat processing
+function buildFileContextForChat(uploadedDocuments: UploadedDocument[], currentFiles?: Express.Multer.File[]): string {
+  let fileContext = '';
+  
+  // Add context from previously uploaded documents
+  if (uploadedDocuments.length > 0) {
+    fileContext += '\n**UPLOADED DOCUMENT CONTEXT:**\n';
+    uploadedDocuments.forEach((doc, index) => {
+      fileContext += `Document ${index + 1}: ${doc.filename} (${doc.type})\n`;
+      
+      if (doc.extractedData) {
+        if (doc.extractedData.description) {
+          fileContext += `  Content: ${doc.extractedData.description}\n`;
+        }
+        if (doc.extractedData.totals && doc.extractedData.totals.length > 0) {
+          fileContext += `  Key Values: ${doc.extractedData.totals.map((t: any) => `${t.label}: ${t.value}${t.currency ? ' ' + t.currency : ''}`).join(', ')}\n`;
+        }
+        if (doc.extractedData.insights && doc.extractedData.insights.length > 0) {
+          fileContext += `  Insights: ${doc.extractedData.insights.join('; ')}\n`;
+        }
+      }
+      fileContext += '\n';
+    });
+  }
+  
+  // Add context about currently uploaded files
+  if (currentFiles && currentFiles.length > 0) {
+    fileContext += '**CURRENT FILE UPLOADS:**\n';
+    currentFiles.forEach((file, index) => {
+      fileContext += `File ${index + 1}: ${file.originalname} (${file.mimetype}, ${(file.size / 1024).toFixed(1)}KB)\n`;
+    });
+    fileContext += '\n';
+  }
+  
+  if (fileContext) {
+    fileContext += `You can reference these uploaded documents in your analysis and responses. When users say "that document", "the image I uploaded", or similar references, they mean these files.\n\n`;
+  }
+  
+  return fileContext;
+}
+
+// Process and store uploaded documents with extraction
+async function processAndStoreDocuments(files: Express.Multer.File[], userId: string): Promise<UploadedDocument[]> {
+  const processedDocs: UploadedDocument[] = [];
+  
+  for (const file of files) {
+    const docId = generateDocumentId();
+    let extractedData: any = null;
+    
+    try {
+      // Process based on file type
+      if (file.mimetype.startsWith('image/')) {
+        // Use Vision API for images
+        extractedData = await extractImageData(file);
+        console.log(`📸 Vision analysis for ${file.originalname}:`, extractedData?.description?.substring(0, 100));
+      } else if (file.mimetype === 'application/pdf') {
+        // For PDFs, use existing file processing service
+        try {
+          const processedFiles = await fileProcessingService.processUploadedFiles([file]);
+          const pdfData = processedFiles[0];
+          extractedData = {
+            description: `PDF document processed`,
+            content: pdfData?.content?.substring(0, 2000) || 'PDF content extraction failed',
+            totals: [],
+            hasFinancialData: /\$|USD|total|amount|balance/i.test(pdfData?.content || '')
+          };
+        } catch (pdfError) {
+          extractedData = {
+            description: 'PDF processing failed',
+            content: 'Unable to extract PDF content',
+            totals: [],
+            hasFinancialData: false
+          };
+        }
+      } else if (file.mimetype.includes('spreadsheet') || file.mimetype.includes('excel')) {
+        // For Excel files, use existing processing
+        try {
+          const processedFiles = await fileProcessingService.processUploadedFiles([file]);
+          const excelData = processedFiles[0];
+          extractedData = {
+            description: `Excel spreadsheet processed`,
+            content: excelData?.content || 'Excel processing completed',
+            totals: [],
+            hasFinancialData: true
+          };
+        } catch (excelError) {
+          extractedData = {
+            description: 'Excel processing failed',
+            content: 'Unable to extract Excel content', 
+            totals: [],
+            hasFinancialData: false
+          };
+        }
+      }
+      
+      const processedDoc: UploadedDocument = {
+        id: docId,
+        filename: file.originalname,
+        type: file.mimetype.startsWith('image/') ? 'image' : 
+               file.mimetype === 'application/pdf' ? 'pdf' : 
+               file.mimetype.includes('excel') ? 'excel' : 'document',
+        extractedData,
+        uploadedAt: new Date().toISOString()
+      };
+      
+      processedDocs.push(processedDoc);
+      
+    } catch (error) {
+      console.error(`Error processing file ${file.originalname}:`, error);
+      // Still add the document even if processing failed
+      processedDocs.push({
+        id: docId,
+        filename: file.originalname,
+        type: 'document',
+        extractedData: { error: 'Processing failed', description: 'File upload received but processing failed' },
+        uploadedAt: new Date().toISOString()
+      });
+    }
+  }
+  
+  return processedDocs;
+}
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -74,8 +446,24 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
       }
     }
 
-    // Call financial intelligence with rules-first
-    const result = await financialIntelligence.processFinancialCommand(message);
+    // Get conversation history and build context
+    const history = conversationHistory.get(userId) || { 
+      messages: [], 
+      lastExcelStructure: null, 
+      uploadedDocuments: [], 
+      extractedTotals: [] 
+    };
+    let enhancedMessage = message;
+
+    // Add context if message needs it or if context exists
+    if (needsContext(message) || history.messages.length > 0) {
+      const contextString = buildContextFromHistory(history);
+      enhancedMessage = contextString + message;
+      console.log('📝 Adding conversation context, enhanced message length:', enhancedMessage.length);
+    }
+
+    // Call financial intelligence with context-enhanced message
+    const result = await financialIntelligence.processFinancialCommand(enhancedMessage);
     
     // Declare variables
     let excelResult: ExcelResult | null = null;
@@ -98,6 +486,26 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
         });
       }
       
+      // Store conversation in memory
+      const messageId = generateMessageId();
+      const conversationEntry = {
+        id: messageId,
+        userMessage: message,
+        gptResponse: result.chatResponse,
+        timestamp: new Date().toISOString(),
+        excelGenerated: true,
+        excelStructure: result.structure
+      };
+
+      // Update conversation history (keep last 10 messages)
+      if (!history.messages) history.messages = [];
+      history.messages.push(conversationEntry);
+      if (history.messages.length > 10) {
+        history.messages = history.messages.slice(-10);
+      }
+      history.lastExcelStructure = result.structure;
+      conversationHistory.set(userId, history);
+
       // Store chat session for accounting
       await prisma.chatSession.create({
         data: {
@@ -122,6 +530,24 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
         }
       });
     } else {
+      // Store conversation in memory for chat-only responses
+      const messageId = generateMessageId();
+      const conversationEntry = {
+        id: messageId,
+        userMessage: message,
+        gptResponse: result.chatResponse,
+        timestamp: new Date().toISOString(),
+        excelGenerated: false
+      };
+
+      // Update conversation history (keep last 10 messages)
+      if (!history.messages) history.messages = [];
+      history.messages.push(conversationEntry);
+      if (history.messages.length > 10) {
+        history.messages = history.messages.slice(-10);
+      }
+      conversationHistory.set(userId, history);
+
       // Just chat response, no Excel
       await prisma.chatSession.create({
         data: {
@@ -235,6 +661,9 @@ export const testNubia = async (req: AuthenticatedRequest, res: Response) => {
     // Call the main handler with test data
     req.body = { message: testMessage };
     
+    // Mock user for testing (temporarily)
+    req.user = { id: 'test-user-123', email: 'test@nubia.ai' };
+    
     // Process through main handler
     await handleUniversalChat(req, res);
     
@@ -283,29 +712,88 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
       }
     }
 
-    let enhancedMessage = message || '';
+    // Get conversation history and build context for file uploads
+    const history = conversationHistory.get(userId) || { 
+      messages: [], 
+      lastExcelStructure: null, 
+      uploadedDocuments: [], 
+      extractedTotals: [] 
+    };
 
-    // Process uploaded files if any
+    let enhancedMessage = message || '';
+    let processedDocuments: UploadedDocument[] = [];
+
+    // Process uploaded files if any with enhanced document processing
     if (files && files.length > 0) {
       try {
-        console.log('🔄 Processing uploaded files...');
+        console.log('🔄 Processing uploaded files with enhanced extraction...');
+        
+        // Process and extract data from uploaded documents
+        processedDocuments = await processAndStoreDocuments(files, userId);
+        
+        // Add documents to user's conversation history
+        history.uploadedDocuments.push(...processedDocuments);
+        
+        // Keep only last 10 documents to prevent memory issues
+        if (history.uploadedDocuments.length > 10) {
+          history.uploadedDocuments = history.uploadedDocuments.slice(-10);
+        }
+        
+        // Extract totals for quick reference
+        processedDocuments.forEach(doc => {
+          if (doc.extractedData?.totals && doc.extractedData.totals.length > 0) {
+            history.extractedTotals.push({
+              documentId: doc.id,
+              totals: doc.extractedData.totals
+            });
+          }
+        });
+        
+        // Use enhanced file context builder
+        const fileContext = buildFileContextForChat(history.uploadedDocuments, files);
+        
+        // For backward compatibility, also use original file processing
         const processedFiles = await fileProcessingService.processUploadedFiles(files);
+        const originalPrompt = fileProcessingService.generateEnhancedPrompt(message || '', processedFiles);
         
-        // Generate enhanced prompt with file content
-        enhancedMessage = fileProcessingService.generateEnhancedPrompt(message || '', processedFiles);
+        // Combine both approaches for maximum context
+        enhancedMessage = fileContext + originalPrompt;
         
-        console.log('✅ Files processed successfully, enhanced message length:', enhancedMessage.length);
+        console.log('✅ Enhanced document processing completed:', {
+          documentsProcessed: processedDocuments.length,
+          visionAnalysis: processedDocuments.filter(d => d.type === 'image').length,
+          totalDocuments: history.uploadedDocuments.length,
+          enhancedMessageLength: enhancedMessage.length
+        });
       } catch (error) {
-        console.error('❌ File processing error:', error);
+        console.error('❌ Enhanced file processing error:', error);
         return res.status(400).json({
           success: false,
-          error: `File processing failed: ${error.message}`,
+          error: `Enhanced file processing failed: ${error.message}`,
           type: 'file_error'
         });
       }
     }
 
-    // Call financial intelligence with enhanced message (includes file content)
+    // Add enhanced context including document references
+    if (needsContext(enhancedMessage) || history.messages.length > 0 || history.uploadedDocuments.length > 0) {
+      const contextString = buildContextFromHistory(history);
+      const documentReferences = detectDocumentReferences(enhancedMessage);
+      
+      // Add specific document context if references detected
+      if (documentReferences.length > 0) {
+        console.log('🔍 Document references detected:', documentReferences.map(r => r.reference));
+      }
+      
+      enhancedMessage = contextString + enhancedMessage;
+      console.log('📝 Adding enhanced conversation context:', {
+        contextLength: contextString.length,
+        documentReferences: documentReferences.length,
+        totalMessageLength: enhancedMessage.length
+      });
+    }
+
+    // Call financial intelligence with enhanced message (includes file content + context)
     const result = await financialIntelligence.processFinancialCommand(enhancedMessage);
     
     // Declare variables
@@ -329,6 +817,29 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
         });
       }
       
+      // Store enhanced conversation in memory for file uploads
+      const messageId = generateMessageId();
+      const conversationEntry = {
+        id: messageId,
+        userMessage: message || '[Files uploaded]',
+        gptResponse: result.chatResponse,
+        timestamp: new Date().toISOString(),
+        excelGenerated: true,
+        excelStructure: result.structure,
+        filesUploaded: files?.length || 0,
+        documentsProcessed: processedDocuments.map(d => ({ id: d.id, filename: d.filename, type: d.type })),
+        documentReferences: detectDocumentReferences(message || '')
+      };
+
+      // Update conversation history (keep last 10 messages)
+      if (!history.messages) history.messages = [];
+      history.messages.push(conversationEntry);
+      if (history.messages.length > 10) {
+        history.messages = history.messages.slice(-10);
+      }
+      history.lastExcelStructure = result.structure;
+      conversationHistory.set(userId, history);
+
       // Store chat session for accounting
       await prisma.chatSession.create({
         data: {
@@ -354,6 +865,27 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
         }
       });
     } else {
+      // Store enhanced conversation in memory for chat-only responses with files
+      const messageId = generateMessageId();
+      const conversationEntry = {
+        id: messageId,
+        userMessage: message || '[Files uploaded]',
+        gptResponse: result.chatResponse,
+        timestamp: new Date().toISOString(),
+        excelGenerated: false,
+        filesUploaded: files?.length || 0,
+        documentsProcessed: processedDocuments.map(d => ({ id: d.id, filename: d.filename, type: d.type })),
+        documentReferences: detectDocumentReferences(message || '')
+      };
+
+      // Update conversation history (keep last 10 messages)
+      if (!history.messages) history.messages = [];
+      history.messages.push(conversationEntry);
+      if (history.messages.length > 10) {
+        history.messages = history.messages.slice(-10);
+      }
+      conversationHistory.set(userId, history);
+
       // Just chat response, no Excel
       await prisma.chatSession.create({
         data: {
@@ -370,7 +902,9 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
         success: true,
         type: 'chat',
         message: result.chatResponse,
-        filesProcessed: files?.length || 0
+        filesProcessed: files?.length || 0,
+        documentsAnalyzed: processedDocuments.length,
+        visionAnalysis: processedDocuments.filter(d => d.type === 'image' && d.extractedData?.description).length
       });
     }
     
@@ -403,10 +937,100 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
   }
 };
 
+// Clear enhanced conversation memory
+export const clearConversation = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+    
+    // Get current history for logging
+    const currentHistory = conversationHistory.get(userId);
+    const stats = {
+      messages: currentHistory?.messages?.length || 0,
+      documents: currentHistory?.uploadedDocuments?.length || 0,
+      totals: currentHistory?.extractedTotals?.length || 0
+    };
+    
+    // Clear conversation history from memory
+    conversationHistory.delete(userId);
+    
+    console.log(`🧹 Cleared enhanced conversation history for user ${userId}:`, stats);
+    
+    res.json({
+      success: true,
+      message: 'Conversation history and document context cleared',
+      cleared: stats
+    });
+    
+  } catch (error) {
+    console.error('Error clearing conversation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to clear conversation history'
+    });
+  }
+};
+
+// Get document context for user
+export const getDocumentContext = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+    
+    const history = conversationHistory.get(userId);
+    
+    if (!history) {
+      return res.json({
+        success: true,
+        documents: [],
+        extractedTotals: [],
+        message: 'No document context found'
+      });
+    }
+    
+    // Return sanitized document context (without raw buffers)
+    const sanitizedDocuments = history.uploadedDocuments.map(doc => ({
+      id: doc.id,
+      filename: doc.filename,
+      type: doc.type,
+      uploadedAt: doc.uploadedAt,
+      extractedData: {
+        description: doc.extractedData?.description,
+        totals: doc.extractedData?.totals,
+        insights: doc.extractedData?.insights,
+        hasFinancialData: doc.extractedData?.hasFinancialData
+      }
+    }));
+    
+    res.json({
+      success: true,
+      documents: sanitizedDocuments,
+      extractedTotals: history.extractedTotals || [],
+      totalDocuments: history.uploadedDocuments?.length || 0,
+      message: 'Document context retrieved successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error getting document context:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get document context'
+    });
+  }
+};
+
 export default {
   handleUniversalChat,
   handleUniversalChatWithFiles,
   getChatHistory,
   deleteChatSession,
+  clearConversation,
+  getDocumentContext,
   testNubia
 };

@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
 const FinancialIntelligenceService = require('./services/financialIntelligence');
 const DynamicExcelGenerator = require('./services/dynamicExcelGenerator');
 const LLMService = require('./services/llmService');
@@ -46,9 +47,104 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+    files: 5 // Maximum 5 files
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/bmp', 'image/webp',
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'text/csv'
+    ];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('File type not supported'), false);
+    }
+  }
+});
+
 // Mock database
 let users = [];
 let subscriptions = [];
+
+// Conversation memory storage
+const conversationHistory = new Map();
+
+// Helper function to generate unique message IDs
+function generateMessageId() {
+  return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Context builder for conversation history
+function buildContextFromHistory(history) {
+  if (!history || history.messages.length === 0) {
+    return '';
+  }
+
+  const lastExcelStructure = history.lastExcelStructure;
+  const recentMessages = history.messages.slice(-3); // Last 3 exchanges for context
+  
+  let context = '\n**CONVERSATION CONTEXT:**\n';
+  
+  if (lastExcelStructure) {
+    context += `PREVIOUS EXCEL WORK:
+- Last created: ${lastExcelStructure.meta?.mode || 'Financial document'}
+- Worksheets: ${lastExcelStructure.workbook?.map(w => w.name).join(', ') || 'Unknown'}
+- Type: ${lastExcelStructure.meta?.framework || 'Financial analysis'}
+- Currency: ${lastExcelStructure.meta?.currency || 'USD'}
+
+`;
+  }
+
+  if (recentMessages.length > 0) {
+    context += 'RECENT CONVERSATION:\n';
+    recentMessages.forEach((msg, index) => {
+      context += `${index + 1}. User: ${msg.userMessage.substring(0, 100)}${msg.userMessage.length > 100 ? '...' : ''}\n`;
+      context += `   Response: ${msg.gptResponse.substring(0, 100)}${msg.gptResponse.length > 100 ? '...' : ''}\n\n`;
+    });
+  }
+
+  context += `When users reference "previous work", "that document", "change the value", "update that", or similar phrases, they refer to the context above. Use this information to understand their requests.\n\n`;
+  
+  return context;
+}
+
+// Detect if message needs context (context-dependent commands)
+function needsContext(message) {
+  const contextCommands = [
+    /change .* to/i,
+    /update the/i,
+    /correct that/i,
+    /add another/i,
+    /remove the/i,
+    /show me .* instead/i,
+    /modify .*/i,
+    /adjust .*/i,
+    /fix .*/i,
+    /(that|this|previous|last) (document|file|excel|sheet|workbook)/i,
+    /from (before|earlier|previous)/i
+  ];
+  
+  return contextCommands.some(pattern => pattern.test(message));
+}
+
+// Format conversation history for GPT messages
+function formatHistoryForGPT(messages) {
+  const formatted = [];
+  messages.forEach(msg => {
+    formatted.push({ role: 'user', content: msg.userMessage });
+    formatted.push({ role: 'assistant', content: msg.gptResponse });
+  });
+  return formatted;
+}
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -353,10 +449,261 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'Test route works!' });
 });
 
-// Universal chat endpoint - GPT decides everything
+// Conversation memory management endpoints
+// Clear conversation history for a user
+app.post('/api/chat/clear', authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    conversationHistory.delete(userId);
+    console.log(`🧹 Cleared conversation history for user ${userId}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Conversation history cleared successfully' 
+    });
+  } catch (error) {
+    console.error('❌ Error clearing conversation history:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to clear conversation history'
+    });
+  }
+});
+
+// Get conversation history for a user
+app.get('/api/chat/history', authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const history = conversationHistory.get(userId);
+    
+    if (!history) {
+      return res.json({ 
+        success: true,
+        history: { messages: [], lastExcelStructure: null },
+        totalMessages: 0
+      });
+    }
+
+    // Return sanitized history (exclude raw responses for brevity)
+    const sanitizedHistory = {
+      ...history,
+      messages: history.messages.map(msg => ({
+        id: msg.id,
+        timestamp: msg.timestamp,
+        userMessage: msg.userMessage,
+        gptResponse: msg.gptResponse,
+        hasExcel: !!msg.excelStructure
+      }))
+    };
+
+    res.json({ 
+      success: true,
+      history: sanitizedHistory,
+      totalMessages: history.messages.length
+    });
+  } catch (error) {
+    console.error('❌ Error fetching conversation history:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch conversation history'
+    });
+  }
+});
+
+// Chat endpoint with file uploads
+app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async (req, res) => {
+  try {
+    const { message, includeContext = true } = req.body;
+    const files = req.files || [];
+    
+    if (!message && files.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Message or files are required' 
+      });
+    }
+
+    console.log(`💬 Processing NUBIA request with ${files.length} files:`, message?.substring(0, 100));
+
+    // Check usage limits first
+    const subscription = subscriptions.find(s => s.userId === req.user.id);
+    if (subscription && subscription.automationsLimit !== -1) {
+      if (subscription.automationsUsed >= subscription.automationsLimit) {
+        return res.status(429).json({
+          error: 'Usage limit exceeded',
+          message: `You've reached your monthly limit of ${subscription.automationsLimit} automations. Please upgrade your plan.`
+        });
+      }
+    }
+
+    // Get conversation history for this user
+    const userId = req.user.id;
+    const history = conversationHistory.get(userId) || { 
+      messages: [], 
+      lastExcelStructure: null 
+    };
+
+    // Build context for GPT if available and requested
+    let contextString = '';
+    let gptMessages = [];
+    
+    if (includeContext && (history.messages.length > 0 || history.lastExcelStructure)) {
+      contextString = buildContextFromHistory(history);
+    }
+
+    // Use conversation-aware system prompt with file processing
+    const { LEGENDARY_NUBIA_SYSTEM_PROMPT } = require('./constants/systemPrompts');
+    
+    // Build messages array with context
+    gptMessages = [
+      {
+        role: 'system',
+        content: LEGENDARY_NUBIA_SYSTEM_PROMPT
+      }
+    ];
+
+    // Add recent conversation history for continuity (last 2 exchanges)
+    if (includeContext && history.messages.length > 0) {
+      const recentMessages = formatHistoryForGPT(history.messages.slice(-2));
+      gptMessages.push(...recentMessages);
+    }
+
+    // Process files and add to context
+    let fileContent = '';
+    if (files.length > 0) {
+      fileContent = `\n\nUPLOADED FILES:\n`;
+      for (const file of files) {
+        fileContent += `- ${file.originalname} (${file.mimetype}, ${(file.size/1024).toFixed(1)}KB)\n`;
+        
+        // For now, just include file info - in a full implementation, you'd process the actual file content
+        if (file.mimetype.startsWith('image/')) {
+          fileContent += `  [Image file - in production, this would be processed for OCR/content extraction]\n`;
+        } else if (file.mimetype === 'application/pdf') {
+          fileContent += `  [PDF file - in production, this would be processed for text extraction]\n`;
+        } else if (file.mimetype.includes('spreadsheet') || file.mimetype.includes('csv')) {
+          fileContent += `  [Spreadsheet file - in production, this would be processed for data extraction]\n`;
+        }
+      }
+    }
+
+    // Add current user message with context and file info
+    const userMessageContent = contextString ? 
+      `${contextString}${fileContent}\nCurrent request: ${message}` : 
+      `${fileContent}${message}`;
+      
+    gptMessages.push({
+      role: 'user',
+      content: userMessageContent
+    });
+
+    // Single LLM call using NUBIA two-block contract
+    const response = await llmService.createCompletion({
+      model: process.env.LLM_MODEL || 'gpt-4o',
+      messages: gptMessages,
+      temperature: Number(process.env.LLM_TEMPERATURE ?? '0.1'),
+      max_tokens: 16000
+    });
+    
+    const rawResponse = response.choices[0].message.content || '';
+    console.log('🎯 NUBIA two-block response received');
+    
+    // Parse two-block contract
+    const chatResponse = extractTaggedBlock(rawResponse, 'CHAT_RESPONSE') || 'Files processed successfully.';
+    const excelDataBlock = extractTaggedBlock(rawResponse, 'EXCEL_DATA');
+    const structure = safeParseJSON(excelDataBlock);
+
+    // Validate structure to determine if Excel is needed
+    const validation = validateExcelStructure(structure);
+    const hasValidExcel = validation.valid && structure;
+
+    // Store this interaction in conversation history
+    const messageId = generateMessageId();
+    const conversationEntry = {
+      id: messageId,
+      timestamp: Date.now(),
+      userMessage: message,
+      gptResponse: chatResponse,
+      excelStructure: hasValidExcel ? structure : null,
+      rawResponse: rawResponse,
+      filesUploaded: files.map(f => ({ name: f.originalname, size: f.size, type: f.mimetype }))
+    };
+
+    // Update conversation history
+    history.messages.push(conversationEntry);
+    if (hasValidExcel) {
+      history.lastExcelStructure = structure;
+    }
+
+    // Keep only last 10 interactions
+    if (history.messages.length > 10) {
+      history.messages = history.messages.slice(-10);
+    }
+
+    // Store updated history
+    conversationHistory.set(userId, history);
+
+    if (hasValidExcel) {
+      console.log('📊 Valid Excel structure detected - generating file');
+      
+      try {
+        // Generate Excel file using parsed structure
+        const result = await excelGenerator.generateFromStructure(structure, req.user.id);
+        
+        // Increment usage counter on success
+        if (subscription && result.success) {
+          subscription.automationsUsed++;
+        }
+        
+        // Return standardized response shape
+        return res.json({
+          success: true,
+          type: 'excel',
+          message: chatResponse,
+          excelData: {
+            filename: result.filename,
+            filepath: result.filepath,
+            summary: structure.meta?.summary || 'Professional Excel workbook created',
+            structure: structure
+          },
+          conversationId: messageId,
+          filesProcessed: files.length
+        });
+        
+      } catch (error) {
+        console.error('❌ Excel generation error:', error);
+        // Return chat response with error note
+        return res.json({
+          success: true,
+          type: 'chat',
+          message: chatResponse + " (Note: Excel generation encountered an issue, but I've provided the analysis above.)",
+          conversationId: messageId,
+          filesProcessed: files.length
+        });
+      }
+    }
+    
+    // Just conversation - no valid Excel structure
+    res.json({ 
+      success: true,
+      type: 'chat', 
+      message: chatResponse,
+      conversationId: messageId,
+      filesProcessed: files.length
+    });
+
+  } catch (error) {
+    console.error('❌ NUBIA Chat API error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Universal chat endpoint with conversation memory - GPT decides everything
 app.post('/api/chat', authMiddleware, async (req, res) => {
   try {
-    const { message, context } = req.body;
+    const { message, includeContext = true } = req.body;
     
     if (!message) {
       return res.status(400).json({ 
@@ -378,20 +725,62 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       }
     }
 
+    // Get conversation history for this user
+    const userId = req.user.id;
+    const history = conversationHistory.get(userId) || { 
+      messages: [], 
+      lastExcelStructure: null 
+    };
+
+    // Check if context is needed and available
+    const messageNeedsContext = needsContext(message);
+    if (messageNeedsContext && !history.lastExcelStructure) {
+      return res.json({
+        success: true,
+        type: 'chat',
+        message: "I don't have any previous context from our conversation. Please specify what you'd like me to create or change, or provide more details about the financial document you're referring to."
+      });
+    }
+
+    // Build context for GPT if available and requested
+    let contextString = '';
+    let gptMessages = [];
+    
+    if (includeContext && (history.messages.length > 0 || history.lastExcelStructure)) {
+      contextString = buildContextFromHistory(history);
+    }
+
+    // Use conversation-aware system prompt
+    const { LEGENDARY_NUBIA_SYSTEM_PROMPT } = require('./constants/systemPrompts');
+    
+    // Build messages array with context
+    gptMessages = [
+      {
+        role: 'system',
+        content: LEGENDARY_NUBIA_SYSTEM_PROMPT
+      }
+    ];
+
+    // Add recent conversation history for continuity (last 2 exchanges)
+    if (includeContext && history.messages.length > 0) {
+      const recentMessages = formatHistoryForGPT(history.messages.slice(-2));
+      gptMessages.push(...recentMessages);
+    }
+
+    // Add current user message with context
+    const userMessageContent = contextString ? 
+      `${contextString}\nCurrent request: ${message}` : 
+      message;
+      
+    gptMessages.push({
+      role: 'user',
+      content: userMessageContent
+    });
+
     // Single LLM call using NUBIA two-block contract
-    const { SYSTEM_PROMPT_UNIVERSAL } = require('./services/llmService');
     const response = await llmService.createCompletion({
       model: process.env.LLM_MODEL || 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: SYSTEM_PROMPT_UNIVERSAL
-        },
-        {
-          role: 'user',
-          content: message
-        }
-      ],
+      messages: gptMessages,
       temperature: Number(process.env.LLM_TEMPERATURE ?? '0.1'),
       max_tokens: 16000
     });
@@ -407,6 +796,31 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
     // Validate structure to determine if Excel is needed
     const validation = validateExcelStructure(structure);
     const hasValidExcel = validation.valid && structure;
+
+    // Store this interaction in conversation history
+    const messageId = generateMessageId();
+    const conversationEntry = {
+      id: messageId,
+      timestamp: Date.now(),
+      userMessage: message,
+      gptResponse: chatResponse,
+      excelStructure: hasValidExcel ? structure : null,
+      rawResponse: rawResponse
+    };
+
+    // Update conversation history
+    history.messages.push(conversationEntry);
+    if (hasValidExcel) {
+      history.lastExcelStructure = structure;
+    }
+
+    // Keep only last 10 interactions
+    if (history.messages.length > 10) {
+      history.messages = history.messages.slice(-10);
+    }
+
+    // Store updated history
+    conversationHistory.set(userId, history);
 
     if (hasValidExcel) {
       console.log('📊 Valid Excel structure detected - generating file');
@@ -430,7 +844,8 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
             filepath: result.filepath,
             summary: structure.meta?.summary || 'Professional Excel workbook created',
             structure: structure // Full structure for frontend processing
-          }
+          },
+          conversationId: messageId
         });
         
       } catch (error) {
@@ -439,7 +854,8 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
         return res.json({
           success: true,
           type: 'chat',
-          message: chatResponse + " (Note: Excel generation encountered an issue, but I've provided the analysis above.)"
+          message: chatResponse + " (Note: Excel generation encountered an issue, but I've provided the analysis above.)",
+          conversationId: messageId
         });
       }
     }
@@ -448,7 +864,8 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
     res.json({ 
       success: true,
       type: 'chat', 
-      message: chatResponse
+      message: chatResponse,
+      conversationId: messageId
     });
 
   } catch (error) {
