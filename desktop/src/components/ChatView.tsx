@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './ChatView.css';
 import cloudApi from '../services/cloudApi';
+import FileUpload from './FileUpload';
+import FileUploadService, { SelectedFile } from '../services/fileUploadService';
 
 interface Message {
   id: string;
@@ -9,6 +11,7 @@ interface Message {
   timestamp: Date;
   automationStatus?: 'pending' | 'running' | 'completed' | 'failed';
   automationProgress?: number;
+  filesProcessed?: number;
 }
 
 interface ChatViewProps {
@@ -44,6 +47,8 @@ const ChatView: React.FC<ChatViewProps> = ({
     message: string;
   } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -85,20 +90,36 @@ const ChatView: React.FC<ChatViewProps> = ({
     }
   }, []);
 
-  const handleSend = async () => {
-    if (!inputValue.trim() || isProcessing) return;
+  const handleFilesSelected = (files: SelectedFile[]) => {
+    setSelectedFiles(files);
+  };
 
+  const handleFileRemove = (fileId: string) => {
+    setSelectedFiles(prev => prev.filter(f => f.id !== fileId));
+  };
+
+  const handleSend = async () => {
+    if ((!inputValue.trim() && selectedFiles.length === 0) || isProcessing) return;
+
+    const hasFiles = selectedFiles.length > 0;
+    const messageContent = inputValue.trim() || (hasFiles ? '[Files uploaded]' : '');
+    
     const userMessage: Message = {
       id: Date.now().toString(),
       type: 'user',
-      content: inputValue.trim(),
-      timestamp: new Date()
+      content: messageContent + (hasFiles ? ` (${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''})` : ''),
+      timestamp: new Date(),
+      filesProcessed: selectedFiles.length
     };
 
     setMessages(prev => [...prev, userMessage]);
     const command = inputValue.trim();
+    const filesToSend = [...selectedFiles];
+    
     setInputValue('');
+    setSelectedFiles([]);
     setIsProcessing(true);
+    setUploadProgress(0);
 
     // Check usage limits for Excel creation
     if (!canUseAutomation) {
@@ -120,13 +141,24 @@ const ChatView: React.FC<ChatViewProps> = ({
     // Send everything to chat - GPT decides what to do
     try {
       console.log('💬 Sending message to GPT:', command);
+      console.log('📎 Files to send:', filesToSend.length);
       
       if (!cloudApi.isAuthenticated()) {
         console.error('❌ User not authenticated!');
         throw new Error('Authentication required. Please log in to chat.');
       }
       
-      const result = await cloudApi.sendChatMessage(command);
+      let result;
+      if (filesToSend.length > 0) {
+        // Send with files
+        setUploadProgress(25);
+        result = await FileUploadService.sendMessageWithFiles(command, filesToSend);
+        setUploadProgress(100);
+      } else {
+        // Send text only
+        result = await cloudApi.sendChatMessage(command);
+      }
+      
       console.log('✅ GPT response received:', result);
       
       // Always show the conversational message first
@@ -134,7 +166,8 @@ const ChatView: React.FC<ChatViewProps> = ({
         id: (Date.now() + 1).toString(),
         type: 'assistant',
         content: result.message,
-        timestamp: new Date()
+        timestamp: new Date(),
+        filesProcessed: result.filesProcessed
       };
       
       setMessages(prev => [...prev, responseMessage]);
@@ -156,10 +189,12 @@ const ChatView: React.FC<ChatViewProps> = ({
       }
       
       setIsProcessing(false);
+      setUploadProgress(0);
       
     } catch (error) {
       console.error('❌ Message failed:', error);
       setIsProcessing(false);
+      setUploadProgress(0);
       
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -227,11 +262,6 @@ const ChatView: React.FC<ChatViewProps> = ({
               <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5"/>
             </svg>
           </button>
-          <button className="header-btn" onClick={handleMinimize} title="Minimize to tray">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M3 8H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-          </button>
           <button className="header-btn" onClick={handleClose} title="Close chat">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
@@ -249,6 +279,11 @@ const ChatView: React.FC<ChatViewProps> = ({
           >
             <div className="message-content">
               {message.content}
+              {message.filesProcessed && message.filesProcessed > 0 && (
+                <div className="files-processed-indicator">
+                  📎 {message.filesProcessed} file{message.filesProcessed !== 1 ? 's' : ''} processed
+                </div>
+              )}
               {message.automationStatus === 'running' && (
                 <div className="automation-indicator">
                   <div className="typing-indicator">
@@ -285,34 +320,77 @@ const ChatView: React.FC<ChatViewProps> = ({
       </div>
 
       <div className="chat-input-container">
-        <textarea
-          ref={inputRef}
-          className="chat-input"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyPress={handleKeyPress}
-          placeholder="Ask me to do Excel tasks..."
+        {/* File Upload Section - Above Input */}
+        <FileUpload
+          selectedFiles={selectedFiles}
+          onFilesSelected={handleFilesSelected}
+          onFileRemove={handleFileRemove}
           disabled={isProcessing}
-          rows={1}
         />
-        <button 
-          className="send-button" 
-          onClick={handleSend}
-          disabled={!inputValue.trim() || isProcessing}
-        >
-          {isProcessing ? (
-            <div className="send-loading">
-              <div className="spinner"></div>
-            </div>
-          ) : (
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path 
-                d="M2 10L17 2L13 18L11 11L2 10Z" 
-                fill="currentColor"
+
+        {/* Upload progress indicator */}
+        {uploadProgress > 0 && uploadProgress < 100 && (
+          <div className="upload-progress-container">
+            <div className="upload-progress-bar">
+              <div 
+                className="upload-progress-fill" 
+                style={{ width: `${uploadProgress}%` }}
               />
-            </svg>
-          )}
-        </button>
+            </div>
+            <div className="upload-progress-text">
+              Uploading files... {uploadProgress}%
+            </div>
+          </div>
+        )}
+
+        {/* Main Input Row */}
+        <div className="main-input-row">
+          <div className="input-wrapper">
+            <button
+              className={`attach-button-inline ${isProcessing ? 'disabled' : ''}`}
+              onClick={() => {
+                const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+                fileInput?.click();
+              }}
+              disabled={isProcessing}
+              title="Attach files (images, PDFs, spreadsheets)"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.64 16.2a2 2 0 0 1-2.83-2.83l8.49-8.49"/>
+              </svg>
+            </button>
+            
+            <textarea
+              ref={inputRef}
+              className="chat-input"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Ask me to process accounting documents or create Excel files..."
+              disabled={isProcessing}
+              rows={1}
+            />
+            
+            <button 
+              className="send-button" 
+              onClick={handleSend}
+              disabled={(!inputValue.trim() && selectedFiles.length === 0) || isProcessing}
+            >
+              {isProcessing ? (
+                <div className="send-loading">
+                  <div className="spinner"></div>
+                </div>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path 
+                    d="M2 10L17 2L13 18L11 11L2 10Z" 
+                    fill="currentColor"
+                  />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
       
       {showSettings && (

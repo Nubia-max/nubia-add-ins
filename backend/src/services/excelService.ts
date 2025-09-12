@@ -81,7 +81,41 @@ export class ExcelService {
       throw error;
     }
   }
+
+  async generateExcelFormulas(userId: string, description: string) {
+    // For now, delegate to processTransactions
+    return this.processTransactions(userId, description);
+  }
+
+  async getUserUsageStats(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        subscriptions: {
+          where: { status: 'ACTIVE' },
+          orderBy: { createdAt: 'desc' },
+          take: 1
+        }
+      }
+    });
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const subscription = user.subscriptions[0];
+    
+    return {
+      automationsUsed: subscription?.automationsUsed || 0,
+      automationsLimit: subscription?.automationsLimit || 10,
+      plan: subscription?.tier || 'FREE',
+      status: subscription?.status || 'INACTIVE'
+    };
+  }
 }
+
+// Create and export default instance
+export const excelService = new ExcelService();
 
 /*
 LEGENDARY NUBIA: Clean Architecture

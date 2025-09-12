@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
-import { handleUniversalChat } from '../controllers/chatController';
+import { handleUniversalChat, handleUniversalChatWithFiles } from '../controllers/chatController';
 import { auth } from '../middleware/auth';
 import { validateRequest } from '../middleware/validateRequest';
+import { fileUploadConfig } from '../services/fileProcessingService';
 
 const router = Router();
 
-// Validation rules
+// Validation rules for text-only messages
 const chatMessageValidation = [
   body('message')
     .notEmpty()
@@ -15,7 +16,10 @@ const chatMessageValidation = [
     .withMessage('Message must be between 1 and 5000 characters'),
 ];
 
-// Universal chat endpoint - matches server-simple.js
+// Text-only chat endpoint
 router.post('/', auth, chatMessageValidation, validateRequest, handleUniversalChat);
+
+// File upload chat endpoint
+router.post('/with-files', auth, fileUploadConfig.array('files', 5), handleUniversalChatWithFiles);
 
 export { router as chatRoutes };
