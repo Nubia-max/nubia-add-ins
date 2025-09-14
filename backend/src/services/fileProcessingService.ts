@@ -94,24 +94,18 @@ export class FileProcessingService {
             content: [
               {
                 type: 'text',
-                text: `CRITICAL: Extract ONLY the factual financial data visible in this image. DO NOT invent or guess any information.
+                text: `You are a data extraction tool. Extract ONLY visible text and numbers from this image. Do NOT analyze, calculate, or make accounting decisions.
 
-                If this is a financial document, extract to this JSON structure:
+                Return visible data in this JSON format:
                 {
-                  "documentType": "receipt|invoice|statement|other",
-                  "date": "YYYY-MM-DD if visible, null if not",
+                  "documentType": "receipt|invoice|statement|other|non_financial",
+                  "date": "exact date text if visible, null if not",
                   "vendor": "exact vendor name if visible, null if not",
-                  "totalAmount": number if visible, null if not,
-                  "currency": "currency symbol/code if visible, USD if not specified",
-                  "items": [{"description": "exact text", "amount": number}] if line items visible,
-                  "taxes": [{"type": "tax type", "amount": number}] if taxes visible,
-                  "rawText": "all visible text from the document"
+                  "amounts": [list of all numbers visible],
+                  "text": "all visible text exactly as shown"
                 }
 
-                If this is NOT a financial document, return:
-                {"documentType": "non_financial", "rawText": "description of what you see"}
-
-                Return ONLY valid JSON, no explanations or markdown.`
+                NO analysis. NO calculations. NO accounting. Just extract what you see.`
               },
               {
                 type: 'image_url',
