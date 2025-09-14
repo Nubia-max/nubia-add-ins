@@ -7,10 +7,7 @@ import ExcelJS from 'exceljs';
 import OpenAI from 'openai';
 import { logger } from '../utils/logger';
 
-const deepseek = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY,
-  baseURL: 'https://api.deepseek.com'
-});
+// DeepSeek client no longer needed since we use the locked LLM service
 
 // OpenAI client for vision processing (DeepSeek doesn't support vision)
 const openai = new OpenAI({
@@ -385,36 +382,47 @@ export class FileProcessingService {
     return enhancedPrompt;
   }
 
-  // Integrated analysis: GPT-4 extraction + DeepSeek accounting analysis
+  // Integrated analysis: GPT-4 extraction + DeepSeek accounting analysis using LOCKED LLM service
   async processWithIntegratedAnalysis(userMessage: string, processedFiles: ProcessedFile[]): Promise<string> {
     try {
-      // Import the system prompt
-      const { LEGENDARY_NUBIA_SYSTEM_PROMPT } = require('../constants/systemPrompts');
+      // Import the locked LLM service for consistency
+      const LLMService = require('./llmService');
+      const llmService = new LLMService();
 
       // Generate enhanced prompt with structured data
       const enhancedPrompt = this.generateEnhancedPrompt(userMessage, processedFiles);
 
-      logger.info('Enhanced prompt being sent to DeepSeek:', enhancedPrompt.substring(0, 1000) + '...');
+      logger.info('Enhanced prompt being sent to LOCKED DeepSeek service:', enhancedPrompt.substring(0, 1000) + '...');
 
-      // Send to DeepSeek for accounting analysis with proper system prompt
-      const response = await deepseek.chat.completions.create({
-        model: 'deepseek-reasoner',
+      // Use the LEGENDARY LOCKED LLM service for consistent results
+      const response = await llmService.createCompletion({
         messages: [
           {
             role: 'system',
-            content: LEGENDARY_NUBIA_SYSTEM_PROMPT
+            content: 'SYSTEM_PLACEHOLDER' // Will be replaced by LEGENDARY_NUBIA_SYSTEM_PROMPT
           },
           {
             role: 'user',
             content: enhancedPrompt
           }
         ],
-        temperature: 0.1,
         max_tokens: 16000
       });
 
       const analysis = response.choices[0]?.message?.content || 'No analysis generated';
-      logger.info('Integrated analysis completed successfully');
+
+      // Debug: Check if DeepSeek returned proper format
+      const hasExcelData = analysis.includes('[EXCEL_DATA]');
+      const hasChatResponse = analysis.includes('[CHAT_RESPONSE]');
+
+      logger.info('DeepSeek response analysis:', {
+        hasExcelData,
+        hasChatResponse,
+        responseLength: analysis.length,
+        firstChars: analysis.substring(0, 200)
+      });
+
+      logger.info('Integrated analysis completed using LOCKED service');
 
       return analysis;
 
