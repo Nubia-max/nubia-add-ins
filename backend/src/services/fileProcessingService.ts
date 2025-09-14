@@ -7,6 +7,12 @@ import ExcelJS from 'exceljs';
 import OpenAI from 'openai';
 import { logger } from '../utils/logger';
 
+const deepseek = new OpenAI({
+  apiKey: process.env.DEEPSEEK_API_KEY,
+  baseURL: 'https://api.deepseek.com'
+});
+
+// OpenAI client for vision processing (DeepSeek doesn't support vision)
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
@@ -68,13 +74,13 @@ interface ProcessedFile {
 
 export class FileProcessingService {
   
-  // Process image with GPT-4 Vision
-  async processImage(filePath: string, originalName: string): Promise<ProcessedFile> {
+  // Process image with GPT-4 Vision (extraction only)
+  async processImage(filePathOrBuffer: string | Buffer, originalName: string): Promise<ProcessedFile> {
     try {
       logger.info(`Processing image: ${originalName}`);
-      
-      // Read and optimize image
-      const imageBuffer = await sharp(filePath)
+
+      // Read and optimize image - handle both file path and buffer
+      const imageBuffer = await sharp(filePathOrBuffer)
         .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: 85 })
         .toBuffer();
@@ -82,25 +88,33 @@ export class FileProcessingService {
       // Convert to base64
       const base64Image = imageBuffer.toString('base64');
 
-      // Call GPT-4 Vision API
+      // Call OpenAI Vision API for data extraction only
       const response = await openai.chat.completions.create({
-        model: 'gpt-4o-2024-11-20',
+        model: 'gpt-4o',
         messages: [
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: `Analyze this accounting document (receipt, invoice, bank statement, etc.) and extract all financial information in a structured format. Include:
-                - Transaction amounts and currencies
-                - Dates
-                - Vendor/customer names
-                - Item descriptions
-                - Categories (expense/income type)
-                - Account classifications
-                - Any other relevant accounting data
-                
-                Format the response as structured JSON with clear fields for easy processing.`
+                text: `CRITICAL: Extract ONLY the factual financial data visible in this image. DO NOT invent or guess any information.
+
+                If this is a financial document, extract to this JSON structure:
+                {
+                  "documentType": "receipt|invoice|statement|other",
+                  "date": "YYYY-MM-DD if visible, null if not",
+                  "vendor": "exact vendor name if visible, null if not",
+                  "totalAmount": number if visible, null if not,
+                  "currency": "currency symbol/code if visible, USD if not specified",
+                  "items": [{"description": "exact text", "amount": number}] if line items visible,
+                  "taxes": [{"type": "tax type", "amount": number}] if taxes visible,
+                  "rawText": "all visible text from the document"
+                }
+
+                If this is NOT a financial document, return:
+                {"documentType": "non_financial", "rawText": "description of what you see"}
+
+                Return ONLY valid JSON, no explanations or markdown.`
               },
               {
                 type: 'image_url',
@@ -112,30 +126,36 @@ export class FileProcessingService {
             ]
           }
         ],
-        max_tokens: 2000,
-        temperature: 0.1
+        max_tokens: 1500,
+        temperature: 0.1,
+        response_format: { type: 'json_object' }
       });
 
-      const extractedContent = response.choices[0]?.message?.content || 'No content extracted';
-      
-      // Try to parse as JSON for structured data
+      const extractedContent = response.choices[0]?.message?.content || '{}';
+
+      // Parse the JSON response
       let extractedData;
       try {
         extractedData = JSON.parse(extractedContent);
+        logger.info(`GPT-4 extracted data from ${originalName}:`, JSON.stringify(extractedData, null, 2));
       } catch (e) {
-        // If not JSON, use as text
-        extractedData = { rawText: extractedContent };
+        logger.warn(`Failed to parse JSON from image ${originalName}:`, e);
+        logger.warn(`Raw GPT-4 response:`, extractedContent);
+        extractedData = {
+          error: 'Failed to parse extracted data',
+          rawText: extractedContent
+        };
       }
 
-      logger.info(`Image processed successfully: ${originalName}`);
-      
+      logger.info(`Image extracted successfully: ${originalName}`);
+
       return {
         originalName,
         type: 'image',
-        content: extractedContent,
+        content: `Extracted financial data from ${originalName}`,
         extractedData
       };
-      
+
     } catch (error) {
       logger.error(`Error processing image ${originalName}:`, error);
       throw new Error(`Failed to process image: ${error.message}`);
@@ -143,11 +163,14 @@ export class FileProcessingService {
   }
 
   // Process PDF
-  async processPDF(filePath: string, originalName: string): Promise<ProcessedFile> {
+  async processPDF(filePathOrBuffer: string | Buffer, originalName: string): Promise<ProcessedFile> {
     try {
       logger.info(`Processing PDF: ${originalName}`);
-      
-      const dataBuffer = await fs.readFile(filePath);
+
+      // Handle both file path and buffer
+      const dataBuffer = typeof filePathOrBuffer === 'string'
+        ? await fs.readFile(filePathOrBuffer)
+        : filePathOrBuffer;
       const pdfData = await pdfParse(dataBuffer);
       
       const extractedText = pdfData.text;
@@ -172,17 +195,19 @@ export class FileProcessingService {
   }
 
   // Process spreadsheet (Excel/CSV)
-  async processSpreadsheet(filePath: string, originalName: string): Promise<ProcessedFile> {
+  async processSpreadsheet(filePathOrBuffer: string | Buffer, originalName: string): Promise<ProcessedFile> {
     try {
       logger.info(`Processing spreadsheet: ${originalName}`);
-      
+
       const extension = path.extname(originalName).toLowerCase();
       let extractedData;
       let content: string;
 
       if (extension === '.csv') {
         // Handle CSV files
-        const csvContent = await fs.readFile(filePath, 'utf-8');
+        const csvContent = typeof filePathOrBuffer === 'string'
+          ? await fs.readFile(filePathOrBuffer, 'utf-8')
+          : filePathOrBuffer.toString('utf-8');
         const rows = csvContent.split('\n').map(row => row.split(','));
         
         extractedData = {
@@ -197,7 +222,11 @@ export class FileProcessingService {
       } else {
         // Handle Excel files
         const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.readFile(filePath);
+        if (typeof filePathOrBuffer === 'string') {
+          await workbook.xlsx.readFile(filePathOrBuffer);
+        } else {
+          await workbook.xlsx.load(filePathOrBuffer as any);
+        }
         
         const worksheetsData: any[] = [];
         let totalRows = 0;
@@ -262,57 +291,79 @@ export class FileProcessingService {
     try {
       for (const file of files) {
         let processedFile: ProcessedFile;
-        
+
+        // Use file.buffer for memory storage, file.path for disk storage
+        const fileData = file.buffer || file.path;
+        if (!fileData) {
+          throw new Error(`No file data available for ${file.originalname}`);
+        }
+
         if (isImage(file.originalname)) {
-          processedFile = await this.processImage(file.path, file.originalname);
+          processedFile = await this.processImage(fileData, file.originalname);
         } else if (isPDF(file.originalname)) {
-          processedFile = await this.processPDF(file.path, file.originalname);
+          processedFile = await this.processPDF(fileData, file.originalname);
         } else if (isSpreadsheet(file.originalname)) {
-          processedFile = await this.processSpreadsheet(file.path, file.originalname);
+          processedFile = await this.processSpreadsheet(fileData, file.originalname);
         } else {
           throw new Error(`Unsupported file type: ${file.originalname}`);
         }
-        
+
         processedFiles.push(processedFile);
-        
-        // Clean up uploaded file
-        await fs.unlink(file.path).catch(err => 
-          logger.warn(`Failed to delete temp file ${file.path}:`, err)
-        );
+
+        // Clean up uploaded file (only if using disk storage)
+        if (file.path) {
+          await fs.unlink(file.path).catch(err =>
+            logger.warn(`Failed to delete temp file ${file.path}:`, err)
+          );
+        }
       }
-      
+
       return processedFiles;
-      
+
     } catch (error) {
-      // Clean up all uploaded files on error
+      // Clean up all uploaded files on error (only if using disk storage)
       for (const file of files) {
-        await fs.unlink(file.path).catch(err => 
-          logger.warn(`Failed to delete temp file ${file.path}:`, err)
-        );
+        if (file.path) {
+          await fs.unlink(file.path).catch(err =>
+            logger.warn(`Failed to delete temp file ${file.path}:`, err)
+          );
+        }
       }
       throw error;
     }
   }
 
-  // Generate enhanced prompt with file content
+  // Generate enhanced prompt with structured file content for DeepSeek analysis
   generateEnhancedPrompt(userMessage: string, processedFiles: ProcessedFile[]): string {
     let enhancedPrompt = userMessage;
-    
+
     if (processedFiles.length > 0) {
-      enhancedPrompt += '\n\n--- UPLOADED FILES ---\n';
-      
+      enhancedPrompt += '\n\n--- FINANCIAL DATA FROM UPLOADED FILES ---\n';
+
       for (const file of processedFiles) {
         enhancedPrompt += `\n[FILE: ${file.originalName}]\n`;
-        
+
         switch (file.type) {
           case 'image':
-            enhancedPrompt += `IMAGE ANALYSIS: The user has uploaded an image containing the following accounting information:\n${file.content}\n`;
+            if (file.extractedData && !file.extractedData.error) {
+              if (file.extractedData.documentType === 'non_financial') {
+                enhancedPrompt += `NON-FINANCIAL IMAGE: ${file.extractedData.rawText}\n`;
+                enhancedPrompt += `Note: This appears to be a non-financial document. Please respond accordingly.\n`;
+              } else if (file.extractedData.totalAmount || file.extractedData.items?.length > 0) {
+                enhancedPrompt += `EXTRACTED FINANCIAL DATA:\n${JSON.stringify(file.extractedData, null, 2)}\n`;
+              } else {
+                enhancedPrompt += `LIMITED FINANCIAL DATA EXTRACTED: ${JSON.stringify(file.extractedData, null, 2)}\n`;
+                enhancedPrompt += `Note: Minimal financial information was found in this image.\n`;
+              }
+            } else {
+              enhancedPrompt += `IMAGE PROCESSING ERROR: ${file.extractedData?.error || 'Unknown error'}\n`;
+            }
             break;
-            
+
           case 'pdf':
             enhancedPrompt += `PDF CONTENT: The user has uploaded a PDF document containing:\n${file.content.substring(0, 2000)}${file.content.length > 2000 ? '...' : ''}\n`;
             break;
-            
+
           case 'spreadsheet':
             enhancedPrompt += `SPREADSHEET DATA: The user has uploaded a spreadsheet (${file.originalName}) with the following structure:\n${file.content}\n`;
             if (file.extractedData?.worksheets) {
@@ -326,12 +377,51 @@ export class FileProcessingService {
             break;
         }
       }
-      
-      enhancedPrompt += '\n--- END FILES ---\n\n';
-      enhancedPrompt += 'Please process the uploaded file content along with the user\'s message. Extract all accounting information, create appropriate ledger entries, and generate professional Excel outputs as needed.';
+
+      enhancedPrompt += '\n--- END FINANCIAL DATA ---\n\n';
+      enhancedPrompt += 'Using the structured financial data above, perform complete accounting analysis including ledger entries, account classifications, and professional Excel outputs as requested.';
     }
-    
+
     return enhancedPrompt;
+  }
+
+  // Integrated analysis: GPT-4 extraction + DeepSeek accounting analysis
+  async processWithIntegratedAnalysis(userMessage: string, processedFiles: ProcessedFile[]): Promise<string> {
+    try {
+      // Import the system prompt
+      const { LEGENDARY_NUBIA_SYSTEM_PROMPT } = require('../constants/systemPrompts');
+
+      // Generate enhanced prompt with structured data
+      const enhancedPrompt = this.generateEnhancedPrompt(userMessage, processedFiles);
+
+      logger.info('Enhanced prompt being sent to DeepSeek:', enhancedPrompt.substring(0, 1000) + '...');
+
+      // Send to DeepSeek for accounting analysis with proper system prompt
+      const response = await deepseek.chat.completions.create({
+        model: 'deepseek-reasoner',
+        messages: [
+          {
+            role: 'system',
+            content: LEGENDARY_NUBIA_SYSTEM_PROMPT
+          },
+          {
+            role: 'user',
+            content: enhancedPrompt
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 16000
+      });
+
+      const analysis = response.choices[0]?.message?.content || 'No analysis generated';
+      logger.info('Integrated analysis completed successfully');
+
+      return analysis;
+
+    } catch (error) {
+      logger.error('Error in integrated analysis:', error);
+      throw new Error(`Failed to perform integrated analysis: ${error.message}`);
+    }
   }
 }
 

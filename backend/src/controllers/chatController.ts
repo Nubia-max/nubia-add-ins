@@ -175,12 +175,13 @@ const financialIntelligence = new FinancialIntelligenceService();
 const excelGenerator = new DynamicExcelGenerator(llmService);
 const fileProcessingService = new FileProcessingService();
 
-// Initialize OpenAI for Vision API
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+// Initialize DeepSeek for Vision API
+const deepseek = new OpenAI({
+  apiKey: process.env.DEEPSEEK_API_KEY,
+  baseURL: 'https://api.deepseek.com'
 });
 
-// GPT Vision API integration for image data extraction
+// DeepSeek Vision API integration for image data extraction
 async function extractImageData(file: Express.Multer.File): Promise<any> {
   try {
     let base64Image: string;
@@ -201,8 +202,8 @@ async function extractImageData(file: Express.Multer.File): Promise<any> {
     
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+    const response = await deepseek.chat.completions.create({
+      model: "deepseek-reasoner",
       messages: [
         {
           role: "user",
@@ -575,7 +576,7 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
     let statusCode = 500;
     
     if (error.message?.includes('quota')) {
-      errorMessage = 'OpenAI quota exceeded. Please try again later.';
+      errorMessage = 'DeepSeek quota exceeded. Please try again later.';
       statusCode = 429;
     } else if (error.message?.includes('API key')) {
       errorMessage = 'API configuration error.';
@@ -916,7 +917,7 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
     let statusCode = 500;
     
     if (error.message?.includes('quota')) {
-      errorMessage = 'OpenAI quota exceeded. Please try again later.';
+      errorMessage = 'DeepSeek quota exceeded. Please try again later.';
       statusCode = 429;
     } else if (error.message?.includes('API key')) {
       errorMessage = 'API configuration error.';

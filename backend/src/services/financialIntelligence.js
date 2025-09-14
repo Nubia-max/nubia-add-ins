@@ -5,21 +5,22 @@ const { LEGENDARY_NUBIA_SYSTEM_PROMPT } = require('../constants/systemPrompts');
 
 class FinancialIntelligenceService {
   constructor() {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY environment variable is required. Please set it in your .env file.');
+    if (!process.env.DEEPSEEK_API_KEY) {
+      throw new Error('DEEPSEEK_API_KEY environment variable is required. Please set it in your .env file.');
     }
-    
+
     if (!LEGENDARY_NUBIA_SYSTEM_PROMPT) {
       throw new Error('LEGENDARY_NUBIA_SYSTEM_PROMPT is not properly exported from systemPrompts.js');
     }
-    
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+
+    this.client = new OpenAI({
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      baseURL: 'https://api.deepseek.com',
       timeout: 60000
     });
   }
 
-  // LEGENDARY NUBIA: Let GPT decide everything, always temperature 0.1
+  // LEGENDARY NUBIA: Let DeepSeek decide everything, always temperature 0.1
   async processFinancialCommand(message, options = {}) {
     if (!message || typeof message !== 'string' || message.trim() === '') {
       throw new Error('Message parameter is required and must be a non-empty string');
@@ -30,30 +31,30 @@ class FinancialIntelligenceService {
 
     while (attempt < maxRetries) {
       try {
-        console.log(`🎯 Processing with legendary Nubia (temperature 0.1) - Attempt ${attempt + 1}`);
-        
-        const response = await this.openai.chat.completions.create({
-          model: 'gpt-4o',
+        console.log(`🎯 Processing with legendary Nubia DeepSeek (temperature 0.1) - Attempt ${attempt + 1}`);
+
+        const response = await this.client.chat.completions.create({
+          model: 'deepseek-reasoner',
           temperature: 0.1,  // ALWAYS 0.1 - even for casual chat
           messages: [
-            { 
-              role: 'system', 
+            {
+              role: 'system',
               content: LEGENDARY_NUBIA_SYSTEM_PROMPT
             },
-            { 
-              role: 'user', 
-              content: message 
+            {
+              role: 'user',
+              content: message
             }
           ],
           max_tokens: 16384
         });
 
         const raw = response.choices[0].message.content || '';
-        console.log('🎯 GPT Response received (rules-first mode)');
+        console.log('🎯 DeepSeek Response received (rules-first mode)');
         
-        // Debug: Log raw GPT response for analysis
+        // Debug: Log raw DeepSeek response for analysis
         if (message.toLowerCase().includes('record') || message.toLowerCase().includes('books')) {
-          console.log('📄 RAW GPT RESPONSE:', raw.substring(0, 1000));
+          console.log('📄 RAW DEEPSEEK RESPONSE:', raw.substring(0, 1000));
         }
 
         // Extract sections using the proven parser
@@ -138,17 +139,17 @@ class FinancialIntelligenceService {
 VALIDATION ERROR FEEDBACK: ${validationError}
 Please correct the structure and ensure all required fields are present.`;
 
-      const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o',
+      const response = await this.client.chat.completions.create({
+        model: 'deepseek-reasoner',
         temperature: 0.1,
         messages: [
-          { 
-            role: 'system', 
+          {
+            role: 'system',
             content: LEGENDARY_NUBIA_SYSTEM_PROMPT
           },
-          { 
-            role: 'user', 
-            content: retryPrompt 
+          {
+            role: 'user',
+            content: retryPrompt
           }
         ],
         max_tokens: 16000
@@ -186,10 +187,10 @@ Please correct the structure and ensure all required fields are present.`;
       version: '2.0',
       features: [
         'Rules-first validation',
-        'Temperature 0.1 deterministic processing', 
+        'Temperature 0.1 deterministic processing',
         'Automatic retry on validation failure',
         'Multi-framework support (GAAP, IFRS, etc.)',
-        'GPT-4o powered intelligence'
+        'DeepSeek Reasoner (Thinking Mode v3.1) powered intelligence'
       ],
       temperature: 0.1,
       rulesFirst: true
@@ -201,13 +202,13 @@ module.exports = FinancialIntelligenceService;
 
 /*
 LEGENDARY NUBIA FINANCIAL INTELLIGENCE
-✅ Let GPT decide everything - no keyword detection
-✅ Always temperature 0.1 - even for casual chat  
+✅ Let DeepSeek decide everything - no keyword detection
+✅ Always temperature 0.1 - even for casual chat
 ✅ Retry mechanism on validation failure
 ✅ Rules-first validation enforcement
-✅ Trust GPT's intelligence completely
+✅ Trust DeepSeek's intelligence completely
 ✅ Clean separation of chat and Excel data
 ✅ Deterministic, professional results every time
 
-The legendary standard: GPT-4o at temperature 0.1 with complete freedom
+The legendary standard: DeepSeek Reasoner at temperature 0.1 with complete freedom
 */

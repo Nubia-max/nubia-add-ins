@@ -5,24 +5,28 @@ const { LEGENDARY_NUBIA_SYSTEM_PROMPT } = require('../constants/systemPrompts');
 
 class LLMService {
   constructor() {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
-      throw new Error('OPENAI_API_KEY environment variable is required. Please set it in your .env file.');
+      throw new Error('DEEPSEEK_API_KEY environment variable is required. Please set it in your .env file.');
     }
-    console.log('✅ OpenAI API key configured');
-    this.openai = new OpenAI({ apiKey });
+    console.log('✅ DeepSeek API key configured');
+    // Use OpenAI SDK but point to DeepSeek endpoints
+    this.client = new OpenAI({
+      apiKey,
+      baseURL: 'https://api.deepseek.com'
+    });
   }
 
   /**
    * LEGENDARY NUBIA: Rules-First completion with LOCKED temperature 0.1
    * NO EXCEPTIONS - Always deterministic, always rules-first
-   * @param {object} options - openai.chat.completions.create options
+   * @param {object} options - DeepSeek chat.completions.create options
    */
   async createCompletion(options) {
     // LEGENDARY LOCK: Temperature 0.1 ALWAYS - no overrides allowed
     const legendaryOptions = {
       ...options,
-      model: 'gpt-4o',  // Always GPT-4o for legendary Nubia
+      model: 'deepseek-reasoner',  // DeepSeek Reasoner - Thinking Mode v3.1
       temperature: 0.1, // LOCKED - ignores env vars and overrides
       frequency_penalty: 0,
       presence_penalty: 0,
@@ -38,31 +42,31 @@ class LLMService {
         return msg;
       })
     };
-    
-    console.log(`🎯 LEGENDARY NUBIA: GPT-4o call (LOCKED temp=0.1)`);
-    
+
+    console.log(`🎯 LEGENDARY NUBIA: DeepSeek Reasoner call (LOCKED temp=0.1)`);
+
     try {
-      const response = await this.openai.chat.completions.create(legendaryOptions);
+      const response = await this.client.chat.completions.create(legendaryOptions);
       
       // Log validation status
       if (response.choices?.[0]?.message?.content) {
         const content = response.choices[0].message.content;
         if (content.includes('"passed":false')) {
-          console.warn('⚠️ Some validation checks failed in GPT response');
+          console.warn('⚠️ Some validation checks failed in DeepSeek response');
         }
       }
-      
+
       return response;
     } catch (error) {
-      console.error('❌ OpenAI API error:', error?.message || error);
+      console.error('❌ DeepSeek API error:', error?.message || error);
       if (String(error?.message).includes('401')) {
-        throw new Error('Invalid OpenAI API key. Please check your .env file.');
+        throw new Error('Invalid DeepSeek API key. Please check your .env file.');
       } else if (String(error?.message).includes('429')) {
-        throw new Error('OpenAI rate limit exceeded. Please try again later.');
+        throw new Error('DeepSeek rate limit exceeded. Please try again later.');
       } else if (String(error?.message).includes('insufficient_quota')) {
-        throw new Error('OpenAI quota exceeded. Please check your billing.');
+        throw new Error('DeepSeek quota exceeded. Please check your billing.');
       }
-      throw new Error(`OpenAI API error: ${error?.message || error}`);
+      throw new Error(`DeepSeek API error: ${error?.message || error}`);
     }
   }
 
@@ -83,10 +87,10 @@ module.exports = LLMService;
 /*
 LEGENDARY NUBIA LLM SERVICE
 ✅ Temperature 0.1 LOCKED - no overrides, no env vars, no exceptions
-✅ Always GPT-4o model for legendary performance
+✅ Always DeepSeek Reasoner (Thinking Mode v3.1) for legendary performance
 ✅ Rules-first system prompt enforced on every call
 ✅ Validation monitoring for accounting checks
-✅ No hardcoded enhancements - GPT has complete freedom
+✅ No hardcoded enhancements - DeepSeek has complete freedom
 ✅ Deterministic, professional results every time
 
 **If any check fails:**
@@ -95,5 +99,5 @@ LEGENDARY NUBIA LLM SERVICE
 - Ensure all checks pass before responding
 - If impossible, explain why in CHAT_RESPONSE
 
-The legendary standard: GPT-4o at temperature 0.1 with complete freedom
+The legendary standard: DeepSeek Reasoner at temperature 0.1 with complete freedom
 */
