@@ -602,9 +602,9 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
       }
     ];
 
-    // Add recent conversation history for continuity
+    // Add recent conversation history for continuity - extended for better context
     if (includeContext && history.messages.length > 0) {
-      const recentMessages = formatHistoryForGPT(history.messages.slice(-2));
+      const recentMessages = formatHistoryForGPT(history.messages.slice(-5)); // Extended from 2 to 5 for better thinking
       gptMessages.push(...recentMessages);
     }
 
@@ -768,7 +768,7 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       });
     }
 
-    console.log('💬 Processing NUBIA two-block request:', message.substring(0, 100));
+    console.log('💬 Processing NUBIA legendary accounting request:', message.substring(0, 100));
 
     // Check usage limits first
     const subscription = subscriptions.find(s => s.userId === req.user!.id);
@@ -806,7 +806,7 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       contextString = buildContextFromHistory(history);
     }
 
-    // Build messages array with context
+    // Build messages array with LEGENDARY NUBIA system prompt
     gptMessages = [
       {
         role: 'system',
@@ -814,9 +814,9 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       }
     ];
 
-    // Add recent conversation history for continuity
+    // Add recent conversation history for continuity - extended for better context
     if (includeContext && history.messages.length > 0) {
-      const recentMessages = formatHistoryForGPT(history.messages.slice(-2));
+      const recentMessages = formatHistoryForGPT(history.messages.slice(-5)); // Extended from 2 to 5 for better thinking
       gptMessages.push(...recentMessages);
     }
 
@@ -830,12 +830,13 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       content: userMessageContent
     });
 
-    // Single LLM call using NUBIA two-block contract
+    // Single LLM call using LEGENDARY NUBIA accounting-first approach
     const response = await llmService.createCompletion({
       model: process.env.LLM_MODEL || 'deepseek-reasoner',
       messages: gptMessages,
       temperature: Number(process.env.LLM_TEMPERATURE ?? '0.1'),
-      max_tokens: 16000
+      max_tokens: 16000,
+      forceAccountingPrompt: true // Always use accounting prompt
     });
 
     const rawResponse = response.choices[0].message.content || '';

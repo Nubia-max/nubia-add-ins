@@ -16,11 +16,12 @@ class FinancialIntelligenceService {
     this.client = new OpenAI({
       apiKey: process.env.DEEPSEEK_API_KEY,
       baseURL: 'https://api.deepseek.com',
-      timeout: 60000
+      timeout: 600000, // 10 minutes for enhanced thinking
+      maxRetries: 2
     });
   }
 
-  // LEGENDARY NUBIA: Let DeepSeek decide everything, always temperature 0.1
+  // LEGENDARY NUBIA: Enhanced thinking with temperature 0
   async processFinancialCommand(message, options = {}) {
     if (!message || typeof message !== 'string' || message.trim() === '') {
       throw new Error('Message parameter is required and must be a non-empty string');
@@ -31,11 +32,11 @@ class FinancialIntelligenceService {
 
     while (attempt < maxRetries) {
       try {
-        console.log(`🎯 Processing with legendary Nubia DeepSeek (temperature 0.1) - Attempt ${attempt + 1}`);
+        console.log(`🎯 Processing with legendary Nubia DeepSeek (temperature 0 - enhanced thinking) - Attempt ${attempt + 1}`);
 
         const response = await this.client.chat.completions.create({
           model: 'deepseek-reasoner',
-          temperature: 0.1,  // ALWAYS 0.1 - even for casual chat
+          temperature: 0,  // LOCKED at 0 for complete determinism with enhanced thinking
           messages: [
             {
               role: 'system',
@@ -50,7 +51,7 @@ class FinancialIntelligenceService {
         });
 
         const raw = response.choices[0].message.content || '';
-        console.log('🎯 DeepSeek Response received (rules-first mode)');
+        console.log('🎯 DeepSeek Response received (enhanced thinking mode)');
         
         // Debug: Log raw DeepSeek response for analysis
         if (message.toLowerCase().includes('record') || message.toLowerCase().includes('books')) {
@@ -141,7 +142,7 @@ Please correct the structure and ensure all required fields are present.`;
 
       const response = await this.client.chat.completions.create({
         model: 'deepseek-reasoner',
-        temperature: 0.1,
+        temperature: 0,
         messages: [
           {
             role: 'system',
@@ -192,7 +193,7 @@ Please correct the structure and ensure all required fields are present.`;
         'Multi-framework support (GAAP, IFRS, etc.)',
         'DeepSeek Reasoner (Thinking Mode v3.1) powered intelligence'
       ],
-      temperature: 0.1,
+      temperature: 0,
       rulesFirst: true
     };
   }
@@ -201,14 +202,15 @@ Please correct the structure and ensure all required fields are present.`;
 module.exports = FinancialIntelligenceService;
 
 /*
-LEGENDARY NUBIA FINANCIAL INTELLIGENCE
+LEGENDARY NUBIA FINANCIAL INTELLIGENCE - ENHANCED THINKING EDITION
 ✅ Let DeepSeek decide everything - no keyword detection
-✅ Always temperature 0.1 - even for casual chat
+✅ Always temperature 0 - enhanced thinking with complete determinism
+✅ Extended 10-minute timeout for thorough reasoning
 ✅ Retry mechanism on validation failure
 ✅ Rules-first validation enforcement
 ✅ Trust DeepSeek's intelligence completely
 ✅ Clean separation of chat and Excel data
-✅ Deterministic, professional results every time
+✅ Deterministic, professional results with detailed working shown
 
-The legendary standard: DeepSeek Reasoner at temperature 0.1 with complete freedom
+The legendary standard: DeepSeek Reasoner at temperature 0 with enhanced thinking for every task
 */

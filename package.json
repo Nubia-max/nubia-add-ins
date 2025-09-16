@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "dev": "./start-dev.sh",
-    "backend": "BACKEND_PORT=3001 node backend/src/server-simple.js",
+    "backend": "BACKEND_PORT=3001 npx ts-node --project backend/tsconfig.json backend/src/server.ts",
     "backend:ts": "npm run dev --workspace=backend",
     "frontend": "cd desktop && npm start",
     "test:auth": "node test-auth-flow.js",

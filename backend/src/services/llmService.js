@@ -13,24 +13,23 @@ class LLMService {
     // Use OpenAI SDK but point to DeepSeek endpoints
     this.client = new OpenAI({
       apiKey,
-      baseURL: 'https://api.deepseek.com'
+      baseURL: 'https://api.deepseek.com',
+      timeout: 600000, // 10 minutes timeout for enhanced thinking
+      maxRetries: 2
     });
   }
 
   /**
-   * LEGENDARY NUBIA: Rules-First completion with LOCKED temperature 0.1
-   * NO EXCEPTIONS - Always deterministic, always rules-first
+   * LEGENDARY NUBIA: Rules-First completion with LOCKED temperature 0
+   * NO EXCEPTIONS - Always deterministic, always rules-first, enhanced thinking
    * @param {object} options - DeepSeek chat.completions.create options
    */
   async createCompletion(options) {
-    // LEGENDARY LOCK: Temperature 0.1 ALWAYS - no overrides allowed
+    // LEGENDARY LOCK: Temperature 0 ALWAYS - no overrides allowed, full determinism
     const legendaryOptions = {
-      ...options,
       model: 'deepseek-reasoner',  // DeepSeek Reasoner - Thinking Mode v3.1
-      temperature: 0.1, // LOCKED - ignores env vars and overrides
-      frequency_penalty: 0,
-      presence_penalty: 0,
-      top_p: 1,
+      temperature: 0, // LOCKED at 0 - completely deterministic with enhanced thinking
+      max_tokens: options.max_tokens || 16000,
       // Force rules-first system prompt - no exceptions
       messages: options.messages.map(msg => {
         if (msg.role === 'system') {
@@ -43,7 +42,9 @@ class LLMService {
       })
     };
 
-    console.log(`🎯 LEGENDARY NUBIA: DeepSeek Reasoner call (LOCKED temp=0.1)`);
+    console.log(`🎯 LEGENDARY NUBIA: DeepSeek Reasoner call (LOCKED temp=0) [ENHANCED THINKING FOR ALL TASKS]`);
+    console.log(`🔍 DEBUG: Model=${legendaryOptions.model}, Temperature=${legendaryOptions.temperature}, Messages=${legendaryOptions.messages.length}, MaxTokens=${legendaryOptions.max_tokens}`);
+    console.log(`🔍 DEBUG: System prompt length=${legendaryOptions.messages[0]?.content?.length || 'NONE'}`);
 
     try {
       const response = await this.client.chat.completions.create(legendaryOptions);
@@ -65,6 +66,8 @@ class LLMService {
         throw new Error('DeepSeek rate limit exceeded. Please try again later.');
       } else if (String(error?.message).includes('insufficient_quota')) {
         throw new Error('DeepSeek quota exceeded. Please check your billing.');
+      } else if (String(error?.message).includes('terminated') || String(error?.message).includes('ECONNRESET') || String(error?.message).includes('timeout')) {
+        throw new Error('Connection to DeepSeek was interrupted. This can happen with long reasoning tasks. Please try again.');
       }
       throw new Error(`DeepSeek API error: ${error?.message || error}`);
     }
@@ -85,13 +88,21 @@ class LLMService {
 module.exports = LLMService;
 
 /*
-LEGENDARY NUBIA LLM SERVICE
-✅ Temperature 0.1 LOCKED - no overrides, no env vars, no exceptions
+LEGENDARY NUBIA LLM SERVICE - ENHANCED THINKING EDITION
+✅ Temperature 0 LOCKED - completely deterministic with enhanced step-by-step thinking
 ✅ Always DeepSeek Reasoner (Thinking Mode v3.1) for legendary performance
-✅ Rules-first system prompt enforced on every call
+✅ Enhanced thinking system prompt enforced on every call - THINK FIRST, FORMAT SECOND
+✅ Extended 10-minute timeout for thorough reasoning on ALL tasks
+✅ Extended conversation context (5 messages) for better continuity
 ✅ Validation monitoring for accounting checks
-✅ No hardcoded enhancements - DeepSeek has complete freedom
-✅ Deterministic, professional results every time
+✅ No hardcoded enhancements - DeepSeek has complete freedom to think through problems
+✅ Deterministic, professional results with detailed working shown
+
+**Enhanced Thinking Process:**
+- Always show step-by-step working for ALL problems
+- Display calculations, adjustments, and reasoning
+- Take time needed to work through problems properly
+- Verify results before presenting final answer
 
 **If any check fails:**
 - DO NOT output invalid results
@@ -99,5 +110,5 @@ LEGENDARY NUBIA LLM SERVICE
 - Ensure all checks pass before responding
 - If impossible, explain why in CHAT_RESPONSE
 
-The legendary standard: DeepSeek Reasoner at temperature 0.1 with complete freedom
+The legendary standard: DeepSeek Reasoner at temperature 0 with enhanced thinking for every task
 */
