@@ -1,65 +1,67 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
+import { firebaseService } from '../services/firebase';
 import { logger } from '../utils/logger';
 
-const prisma = new PrismaClient();
-
-interface JwtPayload {
-  userId: string;
+export interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+    firebaseUid: string;
+  };
 }
 
-export const auth = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const auth = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const authHeader = req.header('Authorization');
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({ 
-        error: 'No token provided or invalid format' 
+      res.status(401).json({
+        error: 'No token provided or invalid format'
       });
       return;
     }
 
-    const token = authHeader.replace('Bearer ', '');
+    const idToken = authHeader.replace('Bearer ', '');
 
     try {
-      const jwtSecret = process.env.JWT_SECRET;
-      if (!jwtSecret) {
-        throw new Error('JWT_SECRET environment variable is not set');
-      }
-      
-      const decoded = jwt.verify(token, jwtSecret) as JwtPayload;
+      // Verify Firebase ID token
+      const decodedToken = await firebaseService.verifyIdToken(idToken);
 
-      // Verify user still exists
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
-        select: { id: true, email: true }
-      });
+      // Get or create user in Firestore
+      let user = await firebaseService.getUserByFirebaseUid(decodedToken.uid);
 
       if (!user) {
-        res.status(401).json({ 
-          error: 'User not found' 
+        // Create new user if they don't exist
+        user = await firebaseService.createUser({
+          firebaseUid: decodedToken.uid,
+          email: decodedToken.email || '',
+          settings: {
+            automationMode: 'visual',
+            notifications: true,
+            autoMinimize: false
+          }
         });
-        return;
       }
 
       // Attach user info to request object
-      (req as any).user = {
-        id: decoded.userId,
-        email: user.email
+      req.user = {
+        id: user.id,
+        email: user.email,
+        firebaseUid: user.firebaseUid
       };
+
       next();
-    } catch (jwtError) {
-      logger.error('JWT verification error:', jwtError);
-      res.status(401).json({ 
-        error: 'Invalid or expired token' 
+    } catch (firebaseError) {
+      logger.error('Firebase token verification error:', firebaseError);
+      res.status(401).json({
+        error: 'Invalid or expired token'
       });
       return;
     }
   } catch (error) {
     logger.error('Auth middleware error:', error);
-    res.status(500).json({ 
-      error: 'Internal server error' 
+    res.status(500).json({
+      error: 'Internal server error'
     });
   }
 };

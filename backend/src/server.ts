@@ -5,9 +5,11 @@ import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
 import multer from 'multer';
+
+// Import Firebase services for auth and database
+import { firebaseService } from './services/firebase';
+import { auth } from './middleware/auth';
 
 // import { authRoutes } from './routes/auth';
 // import { chatRoutes } from './routes/chat';
@@ -45,9 +47,7 @@ const financialIntelligence = new FinancialIntelligenceService();
 const excelGenerator = new DynamicExcelGenerator();
 const fileProcessingService = new FileProcessingService();
 
-// Mock database
-let users: any[] = [];
-let subscriptions: any[] = [];
+// Firebase Firestore replaces mock database for persistent storage
 
 // Extend Express Request type
 declare module 'express-serve-static-core' {
@@ -56,8 +56,8 @@ declare module 'express-serve-static-core' {
   }
 }
 
-// Conversation memory storage
-const conversationHistory = new Map();
+// Conversation history now stored in Firebase Firestore for persistence
+const conversationHistory = new Map(); // Keep in-memory for performance, with Firebase backup
 
 // Rate limiting
 const limiter = rateLimit({
@@ -130,11 +130,14 @@ app.use((req, res, next) => {
 });
 
 // Health check
-app.get('/api/health', (req, res) => {  // Added /api prefix
-  res.status(200).json({ 
-    status: 'healthy', 
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    auth: 'Firebase Auth',
+    database: 'Firebase Firestore',
+    storage: 'Firebase Storage'
   });
 });
 
@@ -199,169 +202,147 @@ function needsContext(message: string) {
 function formatHistoryForGPT(messages: any[]) {
   const formatted: any[] = [];
   messages.forEach(msg => {
-    formatted.push({ role: 'user', content: msg.userMessage });
-    formatted.push({ role: 'assistant', content: msg.gptResponse });
+    // Ensure content fields exist and are non-empty
+    if (msg.userMessage && typeof msg.userMessage === 'string' && msg.userMessage.trim()) {
+      formatted.push({ role: 'user', content: msg.userMessage });
+    }
+    if (msg.gptResponse && typeof msg.gptResponse === 'string' && msg.gptResponse.trim()) {
+      formatted.push({ role: 'assistant', content: msg.gptResponse });
+    }
   });
   return formatted;
 }
 
-// Auth middleware
-const authMiddleware = (req: any, res: any, next: any) => {
-  const authHeader = req.header('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided' });
-  }
+// Firebase Auth middleware
+const authMiddleware = auth;
 
-  const token = authHeader.replace('Bearer ', '');
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret') as any;
-    const user = users.find(u => u.id === decoded.userId);
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-    (req as any).user = { id: user.id, email: user.email };
-    next();
-  } catch (error) {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-};
-
-// Auth routes
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    // Check if user exists
-    const existingUser = users.find(u => u.email === email);
-    if (existingUser) {
-      return res.status(400).json({ error: 'User already exists' });
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 12);
-
-    // Create user
-    const user = {
-      id: `user_${Date.now()}`,
-      email,
-      password: hashedPassword,
-      createdAt: new Date()
-    };
-    users.push(user);
-
-    // Create trial subscription
-    const subscription = {
-      id: `sub_${Date.now()}`,
-      userId: user.id,
-      status: 'TRIAL',
-      tier: 'TRIAL',
-      automationsLimit: 10,
-      automationsUsed: 0,
-      billingPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
-    };
-    subscriptions.push(subscription);
-
-    // Generate token
-    const token = jwt.sign(
-      { userId: user.id },
-      process.env.JWT_SECRET || 'dev-secret',
-      { expiresIn: '24h' }
-    );
-
-    res.status(201).json({
-      message: 'User registered successfully',
-      user: { id: user.id, email: user.email, createdAt: user.createdAt },
-      token
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
+// Firebase Auth routes
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = users.find(u => u.email === email);
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (!email || !password) {
+      return res.status(400).json({
+        error: 'Email and password are required'
+      });
     }
 
-    const isValid = await bcrypt.compare(password, user.password);
-    if (!isValid) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
-    const token = jwt.sign(
-      { userId: user.id },
-      process.env.JWT_SECRET || 'dev-secret',
-      { expiresIn: '24h' }
-    );
-
-    res.json({
-      message: 'Login successful',
-      user: { id: user.id, email: user.email, createdAt: user.createdAt },
-      token
+    // Firebase Auth is handled client-side, but we can return config info
+    return res.json({
+      success: true,
+      message: 'Use Firebase client SDK for authentication',
+      authMethod: 'firebase',
+      config: {
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        authDomain: `${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com`,
+        usingEmulator: process.env.USE_FIREBASE_EMULATOR === 'true'
+      }
     });
   } catch (error) {
-    console.error('Login error:', error);
+    return res.status(500).json({
+      error: 'Internal server error'
+    });
+  }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        error: 'Email and password are required'
+      });
+    }
+
+    // Firebase Auth is handled client-side, but we can return config info
+    return res.json({
+      success: true,
+      message: 'Use Firebase client SDK for registration',
+      authMethod: 'firebase',
+      config: {
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        authDomain: `${process.env.FIREBASE_PROJECT_ID}.firebaseapp.com`,
+        usingEmulator: process.env.USE_FIREBASE_EMULATOR === 'true'
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: 'Internal server error'
+    });
+  }
+});
+
+app.get('/api/auth/me', authMiddleware, async (req, res) => {
+  try {
+    const user = await firebaseService.getUserById(req.user!.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({
+      id: user.id,
+      email: user.email,
+      settings: user.settings,
+      createdAt: user.createdAt
+    });
+  } catch (error) {
+    console.error('Get profile error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-app.get('/api/auth/me', authMiddleware, (req, res) => {
-  res.json(req.user!);
-});
 
-// Subscription routes
-app.get('/api/subscription/current', authMiddleware, (req, res) => {
-  const subscription = subscriptions.find(s => s.userId === req.user!.id);
-  if (!subscription) {
-    // Create trial subscription if none exists
-    const newSub = {
-      id: `sub_${Date.now()}`,
-      userId: req.user!.id,
-      status: 'TRIAL',
-      tier: 'TRIAL',
-      automationsLimit: 10,
-      automationsUsed: 0,
-      billingPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-    };
-    subscriptions.push(newSub);
-    return res.json(newSub);
+// Firebase Subscription routes
+app.get('/api/subscription/current', authMiddleware, async (req, res) => {
+  try {
+    let subscription = await firebaseService.getSubscriptionByUserId(req.user!.id);
+    if (!subscription) {
+      // Create trial subscription if none exists
+      subscription = await firebaseService.createSubscription({
+        userId: req.user!.id,
+        status: 'active',
+        tier: 'free',
+        automationsLimit: 10,
+        automationsUsed: 0,
+        billingPeriodStart: new Date(),
+        billingPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      });
+    }
+    res.json(subscription);
+  } catch (error) {
+    console.error('Get subscription error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  res.json(subscription);
 });
 
 app.get('/api/subscription/tiers', (req, res) => {
   res.json({
-    TRIAL: {
-      tier: 'TRIAL',
-      name: 'Free Trial',
+    free: {
+      tier: 'free',
+      name: 'Free',
       priceId: '',
       automationsLimit: 10,
       monthlyPrice: 0,
       features: ['10 Excel automations', 'Basic templates', 'Email support']
     },
-    STARTER: {
-      tier: 'STARTER',
+    starter: {
+      tier: 'starter',
       name: 'Starter',
       priceId: 'price_starter',
       automationsLimit: 100,
       monthlyPrice: 9,
       features: ['100 Excel automations', 'All templates', 'Priority email support', 'Custom macros']
     },
-    PRO: {
-      tier: 'PRO',
+    pro: {
+      tier: 'pro',
       name: 'Pro',
       priceId: 'price_pro',
       automationsLimit: -1,
       monthlyPrice: 29,
       features: ['Unlimited automations', 'Advanced templates', '24/7 chat support', 'API access', 'Team collaboration']
     },
-    ENTERPRISE: {
-      tier: 'ENTERPRISE',
+    enterprise: {
+      tier: 'enterprise',
       name: 'Enterprise',
       priceId: 'price_enterprise',
       automationsLimit: -1,
@@ -380,8 +361,8 @@ app.post('/api/financial/generate', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Command is required' });
     }
 
-    // Check usage limits
-    const subscription = subscriptions.find(s => s.userId === req.user!.id);
+    // Check usage limits with Firebase
+    const subscription = await firebaseService.getSubscriptionByUserId(req.user!.id);
     if (subscription && subscription.automationsLimit !== -1) {
       if (subscription.automationsUsed >= subscription.automationsLimit) {
         return res.status(429).json({
@@ -413,9 +394,11 @@ app.post('/api/financial/generate', authMiddleware, async (req, res) => {
       req.user!.id
     );
 
-    // Increment usage counter on success
+    // Increment usage counter on success with Firebase
     if (subscription && excelResult.success) {
-      subscription.automationsUsed++;
+      await firebaseService.updateSubscription(subscription.id, {
+        automationsUsed: subscription.automationsUsed + 1
+      });
     }
 
     res.json({
@@ -440,15 +423,15 @@ app.post('/api/financial/generate', authMiddleware, async (req, res) => {
 });
 
 // Automation routes (legacy - kept for compatibility)
-app.post('/api/automation/process', authMiddleware, (req, res) => {
+app.post('/api/automation/process', authMiddleware, async (req, res) => {
   const { command, context, options } = req.body;
 
   if (!command) {
     return res.status(400).json({ error: 'Command is required' });
   }
 
-  // Check usage limits
-  const subscription = subscriptions.find(s => s.userId === req.user!.id);
+  // Check usage limits with Firebase
+  const subscription = await firebaseService.getSubscriptionByUserId(req.user!.id);
   if (subscription && subscription.automationsLimit !== -1) {
     if (subscription.automationsUsed >= subscription.automationsLimit) {
       return res.status(429).json({
@@ -459,10 +442,12 @@ app.post('/api/automation/process', authMiddleware, (req, res) => {
   }
 
   // Simulate automation processing
-  setTimeout(() => {
-    // Increment usage counter
+  setTimeout(async () => {
+    // Increment usage counter with Firebase
     if (subscription) {
-      subscription.automationsUsed++;
+      await firebaseService.updateSubscription(subscription.id, {
+        automationsUsed: subscription.automationsUsed + 1
+      });
     }
   }, 100);
 
@@ -478,8 +463,8 @@ app.post('/api/automation/process', authMiddleware, (req, res) => {
   });
 });
 
-app.get('/api/automation/analytics', authMiddleware, (req, res) => {
-  const subscription = subscriptions.find(s => s.userId === req.user!.id);
+app.get('/api/automation/analytics', authMiddleware, async (req, res) => {
+  const subscription = await firebaseService.getSubscriptionByUserId(req.user!.id);
   res.json({
     analytics: {
       totalAutomations: subscription ? subscription.automationsUsed : 0,
@@ -566,8 +551,8 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
 
     console.log(`💬 Processing NUBIA request with ${files.length} files:`, message?.substring(0, 100));
 
-    // Check usage limits first
-    const subscription = subscriptions.find(s => s.userId === req.user!.id);
+    // Check usage limits first with Firebase
+    const subscription = await firebaseService.getSubscriptionByUserId(req.user!.id);
     if (subscription && subscription.automationsLimit !== -1) {
       if (subscription.automationsUsed >= subscription.automationsLimit) {
         return res.status(429).json({
@@ -695,8 +680,16 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
       history.messages = history.messages.slice(-10);
     }
 
-    // Store updated history
+    // Store updated history in-memory and backup to Firebase
     conversationHistory.set(userId, history);
+
+    // Backup to Firebase for persistence (non-blocking)
+    firebaseService.saveConversationHistory(userId, {
+      messages: history.messages,
+      lastExcelStructure: history.lastExcelStructure,
+      uploadedDocuments: history.uploadedDocuments || [],
+      extractedTotals: history.extractedTotals || []
+    }).catch(error => console.error('Firebase backup error:', error));
 
     if (hasValidExcel) {
       console.log('📊 SERVER.TS: Valid Excel structure detected - generating file');
@@ -707,9 +700,11 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
         const result = await excelGenerator.generateFromStructure(structure, req.user!.id);
         console.log('📊 SERVER.TS: Excel generation result:', result);
 
-        // Increment usage counter on success
+        // Increment usage counter on success with Firebase
         if (subscription && result.success) {
-          subscription.automationsUsed++;
+          await firebaseService.updateSubscription(subscription.id, {
+            automationsUsed: subscription.automationsUsed + 1
+          });
         }
 
         // Return standardized response shape
@@ -772,8 +767,8 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
 
     console.log('💬 Processing NUBIA legendary accounting request:', message.substring(0, 100));
 
-    // Check usage limits first
-    const subscription = subscriptions.find(s => s.userId === req.user!.id);
+    // Check usage limits first with Firebase
+    const subscription = await firebaseService.getSubscriptionByUserId(req.user!.id);
     if (subscription && subscription.automationsLimit !== -1) {
       if (subscription.automationsUsed >= subscription.automationsLimit) {
         return res.status(429).json({
@@ -872,8 +867,16 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       history.messages = history.messages.slice(-10);
     }
 
-    // Store updated history
+    // Store updated history in-memory and backup to Firebase
     conversationHistory.set(userId, history);
+
+    // Backup to Firebase for persistence (non-blocking)
+    firebaseService.saveConversationHistory(userId, {
+      messages: history.messages,
+      lastExcelStructure: history.lastExcelStructure,
+      uploadedDocuments: history.uploadedDocuments || [],
+      extractedTotals: history.extractedTotals || []
+    }).catch(error => console.error('Firebase backup error:', error));
 
     if (hasValidExcel) {
       console.log('📊 SERVER.TS: Valid Excel structure detected - generating file');
@@ -884,9 +887,11 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
         const result = await excelGenerator.generateFromStructure(structure, req.user!.id);
         console.log('📊 SERVER.TS: Excel generation result:', result);
 
-        // Increment usage counter on success
+        // Increment usage counter on success with Firebase
         if (subscription && result.success) {
-          subscription.automationsUsed++;
+          await firebaseService.updateSubscription(subscription.id, {
+            automationsUsed: subscription.automationsUsed + 1
+          });
         }
 
         // Return standardized response shape
@@ -972,8 +977,11 @@ process.on('SIGINT', () => {
 });
 
 server.listen(PORT, () => {
-  logger.info(`🚀 Server running on http://localhost:${PORT}`);
+  logger.info(`🚀 Firebase-powered NUBIA Server running on http://localhost:${PORT}`);
   logger.info(`📡 API available at http://localhost:${PORT}/api`);
+  logger.info(`🔥 Database: Firebase Firestore`);
+  logger.info(`🔐 Auth: Firebase Auth`);
+  logger.info(`📦 Storage: Firebase Storage`);
   logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 

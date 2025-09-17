@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { signIn, signUp, signOut as firebaseSignOut, onAuthStateChange, getIdToken } from '../services/auth';
 import cloudApi from '../services/cloudApi';
 
 interface User {
@@ -23,11 +24,10 @@ export const useAuth = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const checkAuth = async () => {
-    const isAuthenticated = await cloudApi.isAuthenticated();
-    console.log('🔍 checkAuth called, cloudApi.isAuthenticated():', isAuthenticated);
-    
-    if (!isAuthenticated) {
+  const checkAuth = async (firebaseUser?: any) => {
+    console.log('🔍 checkAuth called with Firebase user:', firebaseUser);
+
+    if (!firebaseUser) {
       console.log('❌ User not authenticated, clearing state');
       setUser(null);
       setSubscription(null);
@@ -37,22 +37,40 @@ export const useAuth = () => {
 
     try {
       console.log('✅ User authenticated, fetching profile and subscription');
+
+      // Get Firebase ID token for API calls
+      const idToken = await getIdToken();
+      if (idToken) {
+        // Store token for cloudApi
+        await storeFirebaseToken(idToken);
+      }
+
       const [profileData, subscriptionData] = await Promise.all([
         cloudApi.getProfile(),
         cloudApi.getSubscription()
       ]);
-      
+
       console.log('📊 Profile data:', profileData);
       console.log('📊 Subscription data:', subscriptionData);
-      
-      setUser(profileData);
+
+      setUser(profileData.user || {
+        id: firebaseUser.uid,
+        email: firebaseUser.email,
+        settings: {},
+        createdAt: new Date().toISOString()
+      });
       setSubscription(subscriptionData);
       setError(null);
     } catch (error) {
       console.error('❌ Auth check failed:', error);
-      setError(error instanceof Error ? error.message : 'Authentication failed');
-      setUser(null);
-      setSubscription(null);
+      // Even if backend calls fail, we can still set the Firebase user
+      setUser({
+        id: firebaseUser.uid,
+        email: firebaseUser.email,
+        settings: {},
+        createdAt: new Date().toISOString()
+      });
+      setError(null); // Don't show error for initial backend failures
     } finally {
       setLoading(false);
     }
@@ -61,10 +79,14 @@ export const useAuth = () => {
   const login = async (email: string, password: string) => {
     try {
       console.log('🚀 useAuth.login called');
-      const result = await cloudApi.login(email, password);
-      console.log('✅ cloudApi.login successful:', result);
-      setUser(result.user);
-      await checkAuth(); // Refresh subscription data
+      const result = await signIn(email, password);
+      console.log('✅ Firebase signIn successful:', result);
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      // checkAuth will be called by the auth state listener
       console.log('✅ useAuth.login completed');
       return result;
     } catch (error) {
@@ -77,10 +99,14 @@ export const useAuth = () => {
   const register = async (email: string, password: string) => {
     try {
       console.log('🚀 useAuth.register called');
-      const result = await cloudApi.register(email, password);
-      console.log('✅ cloudApi.register successful:', result);
-      setUser(result.user);
-      await checkAuth(); // Get initial subscription (trial)
+      const result = await signUp(email, password);
+      console.log('✅ Firebase signUp successful:', result);
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      // checkAuth will be called by the auth state listener
       console.log('✅ useAuth.register completed');
       return result;
     } catch (error) {
@@ -91,6 +117,7 @@ export const useAuth = () => {
   };
 
   const logout = async () => {
+    await firebaseSignOut();
     await cloudApi.logout();
     setUser(null);
     setSubscription(null);
@@ -109,24 +136,42 @@ export const useAuth = () => {
   };
 
   const canUseAutomation = () => {
-    if (!subscription) return false;
-    
-    if (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIAL') {
+    if (!subscription) {
+      console.log('❌ canUseAutomation: No subscription found');
+      return false;
+    }
+
+    console.log('🔍 canUseAutomation check:', {
+      status: subscription.status,
+      used: subscription.automationsUsed,
+      limit: subscription.automationsLimit,
+      subscription
+    });
+
+    if (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIAL' &&
+        subscription.status !== 'active' && subscription.status !== 'trial') {
+      console.log('❌ canUseAutomation: Invalid status:', subscription.status);
       return false;
     }
 
     // Check if trial expired
-    if (subscription.status === 'TRIAL' && subscription.billingPeriodEnd) {
+    if ((subscription.status === 'TRIAL' || subscription.status === 'trial') && subscription.billingPeriodEnd) {
       const now = new Date();
       const trialEnd = new Date(subscription.billingPeriodEnd);
-      if (now > trialEnd) return false;
+      if (now > trialEnd) {
+        console.log('❌ canUseAutomation: Trial expired');
+        return false;
+      }
     }
 
     // Check usage limits (-1 means unlimited)
     if (subscription.automationsLimit !== -1) {
-      return subscription.automationsUsed < subscription.automationsLimit;
+      const canUse = subscription.automationsUsed < subscription.automationsLimit;
+      console.log(`🔍 canUseAutomation: ${subscription.automationsUsed} < ${subscription.automationsLimit} = ${canUse}`);
+      return canUse;
     }
 
+    console.log('✅ canUseAutomation: Unlimited usage allowed');
     return true;
   };
 
@@ -148,8 +193,24 @@ export const useAuth = () => {
     };
   };
 
+  // Helper function to store Firebase token for cloudApi
+  const storeFirebaseToken = async (token: string) => {
+    // Check if we're in Electron
+    if (typeof window !== 'undefined' && (window as any).electronAPI) {
+      await (window as any).electronAPI.storeData('nubia_auth_token', token);
+    } else {
+      // Fallback to localStorage for web
+      localStorage.setItem('nubia_auth_token', token);
+    }
+  };
+
   useEffect(() => {
-    checkAuth();
+    const unsubscribe = onAuthStateChange(async (firebaseUser) => {
+      console.log('🔥 Firebase auth state changed:', firebaseUser);
+      await checkAuth(firebaseUser);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   return {

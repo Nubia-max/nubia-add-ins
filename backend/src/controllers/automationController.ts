@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { firebaseService } from '../services/firebase';
 import { UsageTracker } from '../utils/usageTracking';
 import { logger } from '../utils/logger';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 // Import unified services
 const FinancialIntelligenceService = require('../services/financialIntelligence');
@@ -11,15 +12,10 @@ const DynamicExcelGenerator = require('../services/dynamicExcelGenerator');
 const financialIntelligence = new FinancialIntelligenceService();
 const excelGenerator = new DynamicExcelGenerator();
 
-const prisma = new PrismaClient();
-
-interface AutomationRequest extends Request {
-  user?: any;
-  subscription?: any;
-}
+// Prisma replaced with Firebase Firestore for all database operations
 
 // Process Excel automation request from desktop client
-export const processAutomation = async (req: AutomationRequest, res: Response) => {
+export const processAutomation = async (req: AuthenticatedRequest, res: Response) => {
   const startTime = Date.now();
   const userId = req.user?.id;
   
@@ -41,7 +37,7 @@ export const processAutomation = async (req: AutomationRequest, res: Response) =
 
     // Record successful usage
     await UsageTracker.recordUsage({
-      userId,
+      userId: userId!,
       automationType: 'excel_automation',
       command,
       success: true,
@@ -65,7 +61,7 @@ export const processAutomation = async (req: AutomationRequest, res: Response) =
 
     // Record failed usage
     await UsageTracker.recordUsage({
-      userId,
+      userId: userId!,
       automationType: 'excel_automation',
       command: req.body.command,
       success: false,
@@ -81,29 +77,16 @@ export const processAutomation = async (req: AutomationRequest, res: Response) =
 };
 
 // Get user's automation history
-export const getAutomationHistory = async (req: AutomationRequest, res: Response) => {
+export const getAutomationHistory = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.id;
     const { limit = 50, offset = 0 } = req.query;
 
-    const history = await prisma.usageRecord.findMany({
-      where: {
-        userId,
-        automationType: 'excel_automation'
-      },
-      orderBy: {
-        createdAt: 'desc'
-      },
-      take: Number(limit),
-      skip: Number(offset)
-    });
-
-    const totalCount = await prisma.usageRecord.count({
-      where: {
-        userId,
-        automationType: 'excel_automation'
-      }
-    });
+    // Get usage records from Firebase - simplified for now
+    // TODO: Implement pagination in Firebase service if needed
+    const allRecords = await firebaseService.getUserUsageRecords(userId, 'excel_automation');
+    const history = allRecords.slice(Number(offset), Number(offset) + Number(limit));
+    const totalCount = allRecords.length;
 
     res.json({
       history,
@@ -122,16 +105,18 @@ export const getAutomationHistory = async (req: AutomationRequest, res: Response
 };
 
 // Get usage analytics for the user
-export const getUsageAnalytics = async (req: AutomationRequest, res: Response) => {
+export const getUsageAnalytics = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.id;
     const { days = 30 } = req.query;
 
-    const { usage, analytics } = await UsageTracker.getUserUsage(userId, Number(days));
+    // Get subscription from Firebase
+    const subscription = await firebaseService.getSubscriptionByUserId(userId!);
+    const { analytics } = await UsageTracker.getUserUsage(userId!, Number(days));
 
     res.json({
       analytics,
-      subscription: req.subscription,
+      subscription,
       period: {
         days: Number(days),
         startDate: new Date(Date.now() - Number(days) * 24 * 60 * 60 * 1000),
@@ -146,7 +131,7 @@ export const getUsageAnalytics = async (req: AutomationRequest, res: Response) =
 };
 
 // Save automation template
-export const saveAutomationTemplate = async (req: AutomationRequest, res: Response) => {
+export const saveAutomationTemplate = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.id;
     const { name, description, commands, category, isPublic = false } = req.body;
@@ -155,20 +140,19 @@ export const saveAutomationTemplate = async (req: AutomationRequest, res: Respon
       return res.status(400).json({ error: 'Name and commands array are required' });
     }
 
-    const template = await prisma.automationTemplate.create({
-      data: {
-        userId,
-        name,
-        description,
-        commands: JSON.stringify(commands),
-        category,
-        isPublic
-      }
+    const template = await firebaseService.createAutomationTemplate({
+      userId,
+      name,
+      description,
+      commands: JSON.stringify(commands),
+      category,
+      isPublic,
+      usageCount: 0
     });
 
     // Record template creation
     await UsageTracker.recordUsage({
-      userId,
+      userId: userId!,
       automationType: 'template_creation',
       command: name,
       success: true,
@@ -184,37 +168,15 @@ export const saveAutomationTemplate = async (req: AutomationRequest, res: Respon
 };
 
 // Get automation templates (user's own + public)
-export const getAutomationTemplates = async (req: AutomationRequest, res: Response) => {
+export const getAutomationTemplates = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user?.id;
     const { category, isPublic } = req.query;
 
-    const whereCondition: any = {
-      OR: [
-        { userId }, // User's own templates
-        { isPublic: true } // Public templates
-      ]
-    };
-
-    if (category) {
-      whereCondition.category = category;
-    }
-
-    if (isPublic !== undefined) {
-      whereCondition.isPublic = isPublic === 'true';
-    }
-
-    const templates = await prisma.automationTemplate.findMany({
-      where: whereCondition,
-      include: {
-        user: {
-          select: { email: true } // Include template author
-        }
-      },
-      orderBy: [
-        { usageCount: 'desc' },
-        { createdAt: 'desc' }
-      ]
+    const templates = await firebaseService.getAutomationTemplates({
+      userId: userId!,
+      category: category as string,
+      isPublic: isPublic ? isPublic === 'true' : undefined
     });
 
     res.json(templates);
@@ -226,13 +188,11 @@ export const getAutomationTemplates = async (req: AutomationRequest, res: Respon
 };
 
 // Use automation template (increment usage counter)
-export const useAutomationTemplate = async (req: AutomationRequest, res: Response) => {
+export const useAutomationTemplate = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { templateId } = req.params;
 
-    const template = await prisma.automationTemplate.findUnique({
-      where: { id: templateId }
-    });
+    const template = await firebaseService.getAutomationTemplateById(templateId);
 
     if (!template) {
       return res.status(404).json({ error: 'Template not found' });
@@ -244,13 +204,8 @@ export const useAutomationTemplate = async (req: AutomationRequest, res: Respons
     }
 
     // Increment usage counter
-    await prisma.automationTemplate.update({
-      where: { id: templateId },
-      data: {
-        usageCount: {
-          increment: 1
-        }
-      }
+    await firebaseService.updateAutomationTemplate(templateId, {
+      usageCount: template.usageCount + 1
     });
 
     res.json(template);

@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client';
+import { firebaseService } from '../services/firebase';
 import { logger } from './logger';
-
-const prisma = new PrismaClient();
 
 export interface UsageParams {
   userId: string;
@@ -19,34 +17,25 @@ export class UsageTracker {
   static async recordUsage(params: UsageParams): Promise<void> {
     try {
       // Get current subscription
-      const subscription = await prisma.subscription.findFirst({
-        where: { userId: params.userId },
-        orderBy: { createdAt: 'desc' }
-      });
+      const subscription = await firebaseService.getSubscriptionByUserId(params.userId);
 
-      await prisma.usageRecord.create({
-        data: {
-          userId: params.userId,
-          subscriptionId: subscription?.id,
-          automationType: params.automationType,
-          command: params.command || '',
-          success: params.success,
-          tokensUsed: params.tokensUsed,
-          executionTimeMs: params.executionTimeMs,
-          errorMessage: params.errorMessage,
-          metadata: params.metadata ? JSON.stringify(params.metadata) : null
-        }
+      // Create usage record
+      await firebaseService.createUsageRecord({
+        userId: params.userId,
+        subscriptionId: subscription?.id,
+        automationType: params.automationType,
+        command: params.command || '',
+        success: params.success,
+        tokensUsed: params.tokensUsed || 0,
+        executionTimeMs: params.executionTimeMs || 0,
+        errorMessage: params.errorMessage,
+        metadata: params.metadata ? JSON.stringify(params.metadata) : undefined
       });
 
       // Increment usage counter for automations
       if (params.automationType === 'excel_automation' && params.success && subscription) {
-        await prisma.subscription.update({
-          where: { id: subscription.id },
-          data: {
-            automationsUsed: {
-              increment: 1
-            }
-          }
+        await firebaseService.updateSubscription(subscription.id, {
+          automationsUsed: subscription.automationsUsed + 1
         });
       }
 
@@ -70,10 +59,7 @@ export class UsageTracker {
     message?: string;
   }> {
     try {
-      const subscription = await prisma.subscription.findFirst({
-        where: { userId },
-        orderBy: { createdAt: 'desc' }
-      });
+      const subscription = await firebaseService.getSubscriptionByUserId(userId);
 
       if (!subscription) {
         return {
@@ -86,7 +72,7 @@ export class UsageTracker {
       }
 
       // Check subscription status
-      if (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIAL') {
+      if (subscription.status !== 'active' && subscription.status !== 'trial') {
         return {
           allowed: false,
           subscription,
@@ -97,13 +83,12 @@ export class UsageTracker {
       }
 
       // Check trial expiry
-      if (subscription.status === 'TRIAL' && subscription.billingPeriodEnd) {
+      if (subscription.status === 'trial' && subscription.billingPeriodEnd) {
         const now = new Date();
         if (now > subscription.billingPeriodEnd) {
           // Update subscription status
-          await prisma.subscription.update({
-            where: { id: subscription.id },
-            data: { status: 'CANCELED' }
+          await firebaseService.updateSubscription(subscription.id, {
+            status: 'canceled'
           });
 
           return {
@@ -118,7 +103,7 @@ export class UsageTracker {
 
       // Check automation limits (unlimited = -1)
       if (automationType === 'excel_automation') {
-        if (subscription.automationsLimit !== -1 && 
+        if (subscription.automationsLimit !== -1 &&
             subscription.automationsUsed >= subscription.automationsLimit) {
           return {
             allowed: false,
@@ -151,34 +136,27 @@ export class UsageTracker {
   // Get usage analytics for user
   static async getUserUsage(userId: string, days: number = 30) {
     try {
+      const usage = await firebaseService.getUserUsageRecords(userId);
+
+      // Filter by date range
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
-      const usage = await prisma.usageRecord.findMany({
-        where: {
-          userId,
-          createdAt: {
-            gte: startDate
-          }
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
+      const filteredUsage = usage.filter(u => u.createdAt >= startDate);
 
       const analytics = {
-        totalAutomations: usage.filter(u => u.automationType === 'excel_automation').length,
-        successfulAutomations: usage.filter(u => u.automationType === 'excel_automation' && u.success).length,
-        totalChatQueries: usage.filter(u => u.automationType === 'chat_query').length,
-        totalTokensUsed: usage.reduce((sum, u) => sum + (u.tokensUsed || 0), 0),
-        averageExecutionTime: usage.length > 0 
-          ? usage.reduce((sum, u) => sum + (u.executionTimeMs || 0), 0) / usage.length 
+        totalAutomations: filteredUsage.filter(u => u.automationType === 'excel_automation').length,
+        successfulAutomations: filteredUsage.filter(u => u.automationType === 'excel_automation' && u.success).length,
+        totalChatQueries: filteredUsage.filter(u => u.automationType === 'chat_query').length,
+        totalTokensUsed: filteredUsage.reduce((sum, u) => sum + (u.tokensUsed || 0), 0),
+        averageExecutionTime: filteredUsage.length > 0
+          ? filteredUsage.reduce((sum, u) => sum + (u.executionTimeMs || 0), 0) / filteredUsage.length
           : 0,
-        dailyUsage: this.groupUsageByDay(usage),
-        automationsByType: this.groupUsageByType(usage)
+        dailyUsage: this.groupUsageByDay(filteredUsage),
+        automationsByType: this.groupUsageByType(filteredUsage)
       };
 
-      return { usage, analytics };
+      return { usage: filteredUsage, analytics };
     } catch (error) {
       logger.error('Failed to get user usage:', error);
       throw error;
@@ -207,13 +185,13 @@ export class UsageTracker {
 export const checkUsageMiddleware = (automationType: string) => {
   return async (req: any, res: any, next: any) => {
     const userId = req.user?.id;
-    
+
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const usageCheck = await UsageTracker.checkUsageLimit(userId, automationType);
-    
+
     if (!usageCheck.allowed) {
       return res.status(429).json({
         error: 'Usage limit exceeded',

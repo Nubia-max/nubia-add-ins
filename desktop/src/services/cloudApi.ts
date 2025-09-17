@@ -53,6 +53,11 @@ class CloudApiService {
       ...(options.headers as Record<string, string>),
     };
 
+    // Always get the latest token
+    if (!this.token) {
+      this.token = await this.getStoredToken();
+    }
+
     if (this.token) {
       headers.Authorization = `Bearer ${this.token}`;
     }
@@ -89,25 +94,7 @@ class CloudApiService {
     }
   }
 
-  // Authentication
-  async register(email: string, password: string) {
-    const data = await this.request('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    await this.setStoredToken(data.token);
-    return data;
-  }
-
-  async login(email: string, password: string) {
-    const data = await this.request('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    await this.setStoredToken(data.token);
-    return data;
-  }
-
+  // Authentication (Firebase only - use Firebase client SDK for auth)
   async logout() {
     await this.clearStoredToken();
   }

@@ -125,3 +125,7 @@ ENV/
 # Electron
 desktop/dist/
 desktop/release/
+
+# Firebase
+firebase-service-account.json
+**/firebase-service-account.json

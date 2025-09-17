@@ -1,49 +1,48 @@
 import { Server, Socket } from 'socket.io';
-import jwt from 'jsonwebtoken';
-import { PrismaClient } from '@prisma/client';
+import { firebaseService } from '../services/firebase';
 import { logger } from './logger';
-
-const prisma = new PrismaClient();
 
 interface SocketWithAuth extends Socket {
   userId?: string;
 }
 
-interface JwtPayload {
-  userId: string;
-}
 
 export const setupSocketHandlers = (io: Server) => {
-  // Authentication middleware for Socket.IO
+  // Firebase Authentication middleware for Socket.IO
   io.use(async (socket: any, next) => {
     try {
-      const token = socket.handshake.auth.token;
-      
-      if (!token) {
+      const idToken = socket.handshake.auth.token;
+
+      if (!idToken) {
         return next(new Error('Authentication error: No token provided'));
       }
 
-      const decoded = jwt.verify(
-        token,
-        process.env.JWT_SECRET || 'fallback-secret'
-      ) as JwtPayload;
+      // Verify Firebase ID token
+      const decodedToken = await firebaseService.verifyIdToken(idToken);
 
-      // Verify user exists
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
-        select: { id: true, email: true }
-      });
+      // Get or create user from Firebase
+      let user = await firebaseService.getUserByFirebaseUid(decodedToken.uid);
 
       if (!user) {
-        return next(new Error('Authentication error: User not found'));
+        // Create user if doesn't exist (first time connection)
+        user = await firebaseService.createUser({
+          firebaseUid: decodedToken.uid,
+          email: decodedToken.email || '',
+          settings: {
+            automationMode: 'visual',
+            notifications: true,
+            autoMinimize: false
+          }
+        });
       }
 
-      socket.userId = decoded.userId;
+      socket.userId = user.id;
       socket.userEmail = user.email;
+      socket.firebaseUid = decodedToken.uid;
       next();
     } catch (error) {
-      logger.error('Socket authentication error:', error);
-      next(new Error('Authentication error: Invalid token'));
+      logger.error('Socket Firebase authentication error:', error);
+      next(new Error('Authentication error: Invalid Firebase token'));
     }
   });
 
