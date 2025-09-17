@@ -376,54 +376,10 @@ export class FileProcessingService {
     return enhancedPrompt;
   }
 
-  // Integrated analysis: GPT-4 extraction + DeepSeek accounting analysis using LOCKED LLM service
-  async processWithIntegratedAnalysis(userMessage: string, processedFiles: ProcessedFile[]): Promise<string> {
-    try {
-      // Import the locked LLM service for consistency
-      const LLMService = require('./llmService');
-      const llmService = new LLMService();
-
-      // Generate enhanced prompt with structured data
-      const enhancedPrompt = this.generateEnhancedPrompt(userMessage, processedFiles);
-
-      logger.info('Enhanced prompt being sent to LOCKED DeepSeek service:', enhancedPrompt.substring(0, 1000) + '...');
-
-      // Use the LEGENDARY LOCKED LLM service for consistent results
-      const response = await llmService.createCompletion({
-        messages: [
-          {
-            role: 'system',
-            content: 'SYSTEM_PLACEHOLDER' // Will be replaced by LEGENDARY_NUBIA_SYSTEM_PROMPT
-          },
-          {
-            role: 'user',
-            content: enhancedPrompt
-          }
-        ],
-        max_tokens: 16000
-      });
-
-      const analysis = response.choices[0]?.message?.content || 'No analysis generated';
-
-      // Debug: Check if DeepSeek returned proper format
-      const hasExcelData = analysis.includes('[EXCEL_DATA]');
-      const hasChatResponse = analysis.includes('[CHAT_RESPONSE]');
-
-      logger.info('DeepSeek response analysis:', {
-        hasExcelData,
-        hasChatResponse,
-        responseLength: analysis.length,
-        firstChars: analysis.substring(0, 200)
-      });
-
-      logger.info('Integrated analysis completed using LOCKED service');
-
-      return analysis;
-
-    } catch (error) {
-      logger.error('Error in integrated analysis:', error);
-      throw new Error(`Failed to perform integrated analysis: ${error.message}`);
-    }
+  // Simple method to get enhanced prompt for external processing
+  // File processing should only handle file extraction, not LLM analysis
+  async getEnhancedPromptForProcessing(userMessage: string, processedFiles: ProcessedFile[]): Promise<string> {
+    return this.generateEnhancedPrompt(userMessage, processedFiles);
   }
 }
 

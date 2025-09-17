@@ -1,8 +1,15 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { UsageTracker } from '../utils/usageTracking';
-import { llmService } from '../services/llmService';
 import { logger } from '../utils/logger';
+
+// Import unified services
+const FinancialIntelligenceService = require('../services/financialIntelligence');
+const DynamicExcelGenerator = require('../services/dynamicExcelGenerator');
+
+// Initialize services
+const financialIntelligence = new FinancialIntelligenceService();
+const excelGenerator = new DynamicExcelGenerator();
 
 const prisma = new PrismaClient();
 
@@ -254,48 +261,41 @@ export const useAutomationTemplate = async (req: AutomationRequest, res: Respons
   }
 };
 
-// LLM-powered automation execution using company-owned API keys
+// LLM-powered automation execution using unified financial intelligence
 async function executeAutomation(command: string, context: any, options: any) {
   try {
-    // Generate Excel structure using LLM service
-    const llmResult = await llmService.generateExcelStructure(command);
-    
-    // Simulate processing time for automation execution
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
+    // Use unified financial intelligence service
+    const result = await financialIntelligence.processFinancialCommand(command);
+
+    let excelResult = null;
+    if (result.structure) {
+      // Generate Excel using unified generator
+      excelResult = await excelGenerator.generateWithCompleteFreedom(result.structure, 'automation-user');
+    }
+
     return {
       type: 'excel_creation',
-      structure: llmResult.structure,
-      explanation: llmResult.explanation,
+      structure: result.structure,
+      explanation: result.chatResponse,
       success: true,
+      excelResult: excelResult,
       metadata: {
-        cost: llmResult.cost,
+        tokensUsed: result.tokensUsed || 0,
         processingTime: '0.8s',
-        worksheetCount: llmResult.structure.worksheets?.length || 0
+        worksheetCount: result.structure?.workbook?.length || 0
       }
     };
   } catch (error) {
-    logger.error('LLM automation generation failed:', error);
-    
-    // Fallback to basic Excel structure if LLM fails
+    logger.error('Automation generation failed:', error);
+
+    // Fallback to basic response
     return {
-      type: 'excel_creation',
-      structure: {
-        worksheets: [{
-          name: 'Sheet1',
-          columns: [
-            { header: 'Item', key: 'item', width: 20 },
-            { header: 'Value', key: 'value', width: 15 }
-          ],
-          data: [
-            { item: 'Task', value: command }
-          ]
-        }]
-      },
-      explanation: `I created a basic Excel file for: ${command}`,
+      type: 'chat_response',
+      structure: null,
+      explanation: `I apologize, but I encountered an error processing your automation request: ${command}. Please try again or contact support.`,
       success: false,
       metadata: {
-        cost: 0,
+        error: error.message,
         processingTime: '0.1s',
         fallback: true
       }

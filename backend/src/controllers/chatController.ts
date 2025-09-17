@@ -163,30 +163,27 @@ function formatHistoryForGPT(messages: any[]): any[] {
 
 const prisma = new PrismaClient();
 
-// Import services - use correct names
+// Import services - clean architecture
 const FinancialIntelligenceService = require('../services/financialIntelligence');
 const DynamicExcelGenerator = require('../services/dynamicExcelGenerator');
-const LLMService = require('../services/llmService');
 const OpenAI = require('openai');
 
-// Initialize services
-const llmService = new LLMService();
+// Initialize services with clean dependencies
 const financialIntelligence = new FinancialIntelligenceService();
-const excelGenerator = new DynamicExcelGenerator(llmService);
+const excelGenerator = new DynamicExcelGenerator(financialIntelligence);
 const fileProcessingService = new FileProcessingService();
 
-// Initialize DeepSeek for Vision API
-const deepseek = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY,
-  baseURL: 'https://api.deepseek.com'
+// Single OpenAI client for vision API (when needed)
+const openaiVision = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY // Use OpenAI for vision, not DeepSeek
 });
 
-// DeepSeek Vision API integration for image data extraction
+// OpenAI Vision API integration for image data extraction
 async function extractImageData(file: Express.Multer.File): Promise<any> {
   try {
     let base64Image: string;
     let mimeType = file.mimetype;
-    
+
     // Handle both buffer and file path scenarios
     if (file.buffer) {
       // Memory storage - convert buffer to base64
@@ -199,11 +196,11 @@ async function extractImageData(file: Express.Multer.File): Promise<any> {
     } else {
       throw new Error('No file buffer or path available');
     }
-    
+
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
-    const response = await deepseek.chat.completions.create({
-      model: "deepseek-reasoner",
+    const response = await openaiVision.chat.completions.create({
+      model: "gpt-4o",
       messages: [
         {
           role: "user",
@@ -244,7 +241,7 @@ Return the analysis in this JSON format:
         }
       ],
       max_tokens: 1000,
-      temperature: 0.1
+      temperature: 0
     });
 
     const content = response.choices[0].message.content;
@@ -465,17 +462,19 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
 
     // Call financial intelligence with context-enhanced message
     const result = await financialIntelligence.processFinancialCommand(enhancedMessage);
-    
+
     // Declare variables
     let excelResult: ExcelResult | null = null;
-    
+
     // Check if it's accounting (has structure) or just chat
     if (result.structure) {
       // Generate Excel for accounting queries
+      console.log('📊 Generating Excel with structure:', JSON.stringify(result.structure, null, 2).substring(0, 500));
       excelResult = await excelGenerator.generateWithCompleteFreedom(
-        result.structure, 
+        result.structure,
         userId
       );
+      console.log('📊 Excel generation result:', excelResult);
       
       // Update usage if successful
       if (subscription && excelResult?.success) {
@@ -521,8 +520,10 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
       
       return res.json({
         success: true,
-        type: 'excel',
+        type: result.automationExecuted ? 'automation' : 'excel',
         message: result.chatResponse,
+        automationExecuted: result.automationExecuted || false,
+        functionResults: result.functionResults || [],
         excelData: {
           filename: excelResult?.filename || 'unknown.xlsx',
           filepath: excelResult?.filepath || '',
@@ -563,8 +564,10 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
       
       return res.json({
         success: true,
-        type: 'chat',
-        message: result.chatResponse
+        type: result.automationExecuted ? 'automation' : 'chat',
+        message: result.chatResponse,
+        automationExecuted: result.automationExecuted || false,
+        functionResults: result.functionResults || []
       });
     }
     
@@ -753,10 +756,10 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
         // Use enhanced file context builder
         const fileContext = buildFileContextForChat(history.uploadedDocuments, files);
         
-        // For backward compatibility, also use original file processing
+        // Use unified file processing approach
         const processedFiles = await fileProcessingService.processUploadedFiles(files);
-        const originalPrompt = fileProcessingService.generateEnhancedPrompt(message || '', processedFiles);
-        
+        const originalPrompt = await fileProcessingService.getEnhancedPromptForProcessing(message || '', processedFiles);
+
         // Combine both approaches for maximum context
         enhancedMessage = fileContext + originalPrompt;
         
@@ -803,10 +806,12 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
     // Check if it's accounting (has structure) or just chat
     if (result.structure) {
       // Generate Excel for accounting queries
+      console.log('📊 FILE UPLOAD: Generating Excel with structure:', JSON.stringify(result.structure, null, 2).substring(0, 500));
       excelResult = await excelGenerator.generateWithCompleteFreedom(
-        result.structure, 
+        result.structure,
         userId
       );
+      console.log('📊 FILE UPLOAD: Excel generation result:', excelResult);
       
       // Update usage if successful
       if (subscription && excelResult?.success) {
@@ -855,9 +860,11 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
       
       return res.json({
         success: true,
-        type: 'excel',
+        type: result.automationExecuted ? 'automation' : 'excel',
         message: result.chatResponse,
         filesProcessed: files?.length || 0,
+        automationExecuted: result.automationExecuted || false,
+        functionResults: result.functionResults || [],
         excelData: {
           filename: excelResult?.filename || 'unknown.xlsx',
           filepath: excelResult?.filepath || '',
@@ -901,11 +908,13 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
       
       return res.json({
         success: true,
-        type: 'chat',
+        type: result.automationExecuted ? 'automation' : 'chat',
         message: result.chatResponse,
         filesProcessed: files?.length || 0,
         documentsAnalyzed: processedDocuments.length,
-        visionAnalysis: processedDocuments.filter(d => d.type === 'image' && d.extractedData?.description).length
+        visionAnalysis: processedDocuments.filter(d => d.type === 'image' && d.extractedData?.description).length,
+        automationExecuted: result.automationExecuted || false,
+        functionResults: result.functionResults || []
       });
     }
     

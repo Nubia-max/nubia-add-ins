@@ -21,17 +21,70 @@ function extractTaggedBlock(text, tag) {
     }
     
     if (tag === 'EXCEL_DATA') {
-      // Look for JSON object starting with meta (rules-first format)
-      const metaMatch = text.match(/\{[\s\S]*"meta"[\s\S]*\}/i);
-      if (metaMatch) return metaMatch[0];
-      
-      // Fallback: Look for workbook array
-      const workbookMatch = text.match(/\{[\s\S]*"workbook"[\s\S]*\}/i);
-      if (workbookMatch) return workbookMatch[0];
-      
-      // Legacy: Look for worksheets
-      const worksheetMatch = text.match(/\{[\s\S]*"worksheets"[\s\S]*\}/i);
-      return worksheetMatch ? worksheetMatch[0] : null;
+      // AGGRESSIVE: Find ANY JSON object in the response, starting from first {
+      let jsonStart = text.indexOf('{');
+      if (jsonStart === -1) return null;
+
+      // Find the proper end by counting braces
+      let braceCount = 0;
+      let jsonEnd = jsonStart;
+      let inString = false;
+      let escapeNext = false;
+
+      for (let i = jsonStart; i < text.length; i++) {
+        const char = text[i];
+
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+
+        if (char === '"' && !escapeNext) {
+          inString = !inString;
+          continue;
+        }
+
+        if (!inString) {
+          if (char === '{') {
+            braceCount++;
+          } else if (char === '}') {
+            braceCount--;
+            if (braceCount === 0) {
+              jsonEnd = i + 1;
+              break;
+            }
+          }
+        }
+      }
+
+      if (braceCount === 0 && jsonEnd > jsonStart) {
+        let jsonText = text.slice(jsonStart, jsonEnd);
+        console.log('🔧 AGGRESSIVE: Extracted JSON length:', jsonText.length);
+        console.log('🔧 JSON ends with:', jsonText.slice(-100));
+        return jsonText;
+      }
+
+      // Fallback: Try simpler patterns
+      const patterns = [
+        /\{[\s\S]*?"workbook"[\s\S]*?\}/i,
+        /\{[\s\S]*?"meta"[\s\S]*?\}/i,
+        /\{[\s\S]*?\}/i
+      ];
+
+      for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match) {
+          console.log('🔧 FALLBACK: Using pattern match, length:', match[0].length);
+          return match[0];
+        }
+      }
+
+      return null;
     }
     
     return null;
@@ -76,11 +129,15 @@ function safeParseJSON(jsonText) {
     }
   }
   
-  try { 
-    return JSON.parse(t); 
-  } catch {
-    // Comprehensive JSON cleanup
+  try {
+    return JSON.parse(t);
+  } catch (firstError) {
+    console.log('🔧 First JSON parse failed, attempting cleanup...');
+    console.log('🔧 Error:', firstError.message);
+
+    // Enhanced JSON cleanup for DeepSeek responses
     t = t
+      .replace(/\}\s*[\s\S]*$/, '}')          // Remove everything after final }
       .replace(/,\s*([}\]])/g,'$1')           // Remove trailing commas
       .replace(/,\s*,/g, ',')                 // Remove double commas
       .replace(/\/\/.*$/gm, '')               // Remove line comments
@@ -89,14 +146,23 @@ function safeParseJSON(jsonText) {
       .replace(/"\s*:\s*undefined/g, '": null') // Fix undefined values
       .replace(/:\s*undefined/g, ': null')     // Fix unquoted undefined
       .replace(/,(\s*[}\]])/g, '$1')          // Final trailing comma cleanup
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
       .trim();
-    
-    try { 
-      return JSON.parse(t); 
-    } catch (finalError) { 
+
+    // Try to find just the main JSON object if there's extra content
+    const jsonMatch = t.match(/^\{[\s\S]*?\}(?=\s*$|\s*[^}\],])/);
+    if (jsonMatch) {
+      t = jsonMatch[0];
+      console.log('🔧 Extracted main JSON object, length:', t.length);
+    }
+
+    try {
+      return JSON.parse(t);
+    } catch (finalError) {
       console.error('JSON parsing failed after cleanup:', finalError.message);
       console.error('Cleaned text (first 500 chars):', t.slice(0, 500));
-      return null; 
+      console.error('Cleaned text (last 100 chars):', t.slice(-100));
+      return null;
     }
   }
 }

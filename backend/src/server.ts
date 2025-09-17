@@ -21,8 +21,7 @@ import { logger } from './utils/logger';
 // Import services from simple-server functionality
 const FinancialIntelligenceService = require('./services/financialIntelligence');
 const DynamicExcelGenerator = require('./services/dynamicExcelGenerator');
-const LLMService = require('./services/llmService');
-const { extractTaggedBlock, safeParseJSON, validateExcelStructure } = require('./utils/sectionParsers');
+const { validateExcelStructure } = require('./utils/sectionParsers');
 const { LEGENDARY_NUBIA_SYSTEM_PROMPT } = require('./constants/systemPrompts');
 
 // Import FileProcessingService for OCR/image processing
@@ -43,8 +42,7 @@ const PORT = process.env.BACKEND_PORT || 3001;
 
 // Initialize services
 const financialIntelligence = new FinancialIntelligenceService();
-const llmService = new LLMService();
-const excelGenerator = new DynamicExcelGenerator(llmService);
+const excelGenerator = new DynamicExcelGenerator();
 const fileProcessingService = new FileProcessingService();
 
 // Mock database
@@ -610,14 +608,26 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
 
     // Handle files with integrated GPT-4 + DeepSeek analysis
     let rawResponse = '';
+    let structureFromFI = null;
     if (Array.isArray(files) && files.length > 0) {
       try {
         // Process all files (GPT-4 extraction for images)
         const processedFiles = await fileProcessingService.processUploadedFiles(files);
 
-        // Use integrated analysis: GPT-4 extraction + DeepSeek accounting analysis
+        // Use unified financial intelligence with file processing
         const fullUserMessage = contextString ? `${contextString}\nCurrent request: ${message}` : message;
-        rawResponse = await fileProcessingService.processWithIntegratedAnalysis(fullUserMessage, processedFiles);
+        const enhancedPrompt = await fileProcessingService.getEnhancedPromptForProcessing(fullUserMessage, processedFiles);
+
+        // Process through unified financial intelligence service
+        const FinancialIntelligenceService = require('./services/financialIntelligence');
+        const financialIntelligence = new FinancialIntelligenceService();
+        const result = await financialIntelligence.processFinancialCommand(enhancedPrompt);
+        rawResponse = result.chatResponse;
+
+        // IMPORTANT: Get the already-parsed structure from the result
+        structureFromFI = result.structure;
+        console.log('🔍 SERVER.TS FILES: Got structure from FI:', structureFromFI ? 'EXISTS' : 'NULL');
+        console.log('🔍 SERVER.TS FILES: Result object keys:', Object.keys(result));
 
       } catch (error) {
         console.error('Error processing files:', error);
@@ -627,19 +637,12 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
           `${contextString}\nCurrent request: ${message}\n\n[Error processing uploaded files: ${(error as Error).message}]` :
           `${message}\n\n[Error processing uploaded files: ${(error as Error).message}]`;
 
-        gptMessages.push({
-          role: 'user',
-          content: userMessageContent
-        });
+        // Process through unified financial intelligence service
+        const result = await financialIntelligence.processFinancialCommand(userMessageContent);
+        rawResponse = result.chatResponse;
 
-        const response = await llmService.createCompletion({
-          model: process.env.LLM_MODEL || 'deepseek-reasoner',
-          messages: gptMessages,
-          temperature: Number(process.env.LLM_TEMPERATURE ?? '0.1'),
-          max_tokens: 16000
-        });
-
-        rawResponse = response.choices[0].message.content || '';
+        // IMPORTANT: Get the already-parsed structure from the result
+        structureFromFI = result.structure;
       }
     } else {
       // No files - regular text processing
@@ -647,30 +650,27 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
         `${contextString}\nCurrent request: ${message}` :
         message;
 
-      gptMessages.push({
-        role: 'user',
-        content: userMessageContent
-      });
+      // Process through unified financial intelligence service
+      const result = await financialIntelligence.processFinancialCommand(userMessageContent);
+      rawResponse = result.chatResponse;
 
-      const response = await llmService.createCompletion({
-        model: process.env.LLM_MODEL || 'deepseek-reasoner',
-        messages: gptMessages,
-        temperature: Number(process.env.LLM_TEMPERATURE ?? '0.1'),
-        max_tokens: 16000
-      });
-
-      rawResponse = response.choices[0].message.content || '';
+      // IMPORTANT: Get the already-parsed structure from the result
+      structureFromFI = result.structure;
     }
     console.log('🎯 NUBIA two-block response received');
 
-    // Parse two-block contract
-    const chatResponse = extractTaggedBlock(rawResponse, 'CHAT_RESPONSE') || 'Files processed successfully.';
-    const excelDataBlock = extractTaggedBlock(rawResponse, 'EXCEL_DATA');
-    const structure = safeParseJSON(excelDataBlock);
+    // Use the already-parsed structure from financialIntelligence
+    const chatResponse = rawResponse; // This is already just the chat response
+    const structure = structureFromFI; // Use the pre-parsed structure
+    console.log('🔍 SERVER.TS: Using pre-parsed structure:', structure ? 'EXISTS' : 'NULL');
 
-    // Validate structure to determine if Excel is needed
-    const validation = validateExcelStructure(structure);
+    // Validate structure to determine if Excel is needed - only validate if structure exists
+    const validation = structure ? validateExcelStructure(structure) : { valid: false, error: 'No structure provided' };
     const hasValidExcel = validation.valid && structure;
+
+    console.log('🔍 SERVER.TS: Excel validation result:', validation);
+    console.log('🔍 SERVER.TS: hasValidExcel:', hasValidExcel);
+    console.log('🔍 SERVER.TS: structure exists:', !!structure);
 
     // Store this interaction in conversation history
     const messageId = generateMessageId();
@@ -699,11 +699,13 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
     conversationHistory.set(userId, history);
 
     if (hasValidExcel) {
-      console.log('📊 Valid Excel structure detected - generating file');
+      console.log('📊 SERVER.TS: Valid Excel structure detected - generating file');
+      console.log('📊 SERVER.TS: Structure:', JSON.stringify(structure, null, 2).substring(0, 500));
 
       try {
         // Generate Excel file using parsed structure
         const result = await excelGenerator.generateFromStructure(structure, req.user!.id);
+        console.log('📊 SERVER.TS: Excel generation result:', result);
 
         // Increment usage counter on success
         if (subscription && result.success) {
@@ -718,7 +720,7 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
           excelData: {
             filename: result.filename,
             filepath: result.filepath,
-            summary: structure.meta?.summary || 'Professional Excel workbook created',
+            summary: (structure as any)?.meta?.summary || 'Professional Excel workbook created',
             structure: structure
           },
           conversationId: messageId,
@@ -830,26 +832,23 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       content: userMessageContent
     });
 
-    // Single LLM call using LEGENDARY NUBIA accounting-first approach
-    const response = await llmService.createCompletion({
-      model: process.env.LLM_MODEL || 'deepseek-reasoner',
-      messages: gptMessages,
-      temperature: Number(process.env.LLM_TEMPERATURE ?? '0.1'),
-      max_tokens: 16000,
-      forceAccountingPrompt: true // Always use accounting prompt
-    });
-
-    const rawResponse = response.choices[0].message.content || '';
+    // Single unified call using LEGENDARY NUBIA financial intelligence with context
+    const result = await financialIntelligence.processFinancialCommand(userMessageContent);
+    const rawResponse = result.chatResponse;
     console.log('🎯 NUBIA two-block response received');
 
-    // Parse two-block contract
-    const chatResponse = extractTaggedBlock(rawResponse, 'CHAT_RESPONSE') || 'Professional workbook created successfully.';
-    const excelDataBlock = extractTaggedBlock(rawResponse, 'EXCEL_DATA');
-    const structure = safeParseJSON(excelDataBlock);
+    // Use the already-parsed structure from financialIntelligence (same as with-files endpoint)
+    const chatResponse = rawResponse; // This is already just the chat response
+    const structure = result.structure; // Use the pre-parsed structure
+    console.log('🔍 SERVER.TS: Using pre-parsed structure:', structure ? 'EXISTS' : 'NULL');
 
-    // Validate structure to determine if Excel is needed
-    const validation = validateExcelStructure(structure);
+    // Validate structure to determine if Excel is needed - only validate if structure exists
+    const validation = structure ? validateExcelStructure(structure) : { valid: false, error: 'No structure provided' };
     const hasValidExcel = validation.valid && structure;
+
+    console.log('🔍 SERVER.TS: Excel validation result:', validation);
+    console.log('🔍 SERVER.TS: hasValidExcel:', hasValidExcel);
+    console.log('🔍 SERVER.TS: structure exists:', !!structure);
 
     // Store this interaction in conversation history
     const messageId = generateMessageId();
@@ -877,11 +876,13 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
     conversationHistory.set(userId, history);
 
     if (hasValidExcel) {
-      console.log('📊 Valid Excel structure detected - generating file');
+      console.log('📊 SERVER.TS: Valid Excel structure detected - generating file');
+      console.log('📊 SERVER.TS: Structure:', JSON.stringify(structure, null, 2).substring(0, 500));
 
       try {
         // Generate Excel file using parsed structure
         const result = await excelGenerator.generateFromStructure(structure, req.user!.id);
+        console.log('📊 SERVER.TS: Excel generation result:', result);
 
         // Increment usage counter on success
         if (subscription && result.success) {
@@ -896,7 +897,7 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
           excelData: {
             filename: result.filename,
             filepath: result.filepath,
-            summary: structure.meta?.summary || 'Professional Excel workbook created',
+            summary: (structure as any)?.meta?.summary || 'Professional Excel workbook created',
             structure: structure
           },
           conversationId: messageId
