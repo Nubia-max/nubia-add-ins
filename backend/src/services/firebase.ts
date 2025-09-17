@@ -95,6 +95,8 @@ export interface ChatSession {
   userId: string;
   messages: string; // JSON string
   tokensUsed: number;
+  enhanced?: boolean; // Smart context enhancement flag
+  contextUsed?: boolean; // Smart context usage flag
   createdAt: Date;
   updatedAt: Date;
 }

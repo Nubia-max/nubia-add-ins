@@ -539,9 +539,10 @@ app.get('/api/chat/history', authMiddleware, (req, res) => {
 // Chat endpoint with file uploads
 app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async (req, res) => {
   try {
-    const { message, includeContext = true } = req.body;
+    const { message } = req.body;
     const files = req.files || [];
 
+    // Allow files without message, but require at least one of them
     if (!message && files.length === 0) {
       return res.status(400).json({
         success: false,
@@ -549,7 +550,10 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
       });
     }
 
-    console.log(`💬 Processing NUBIA request with ${files.length} files:`, message?.substring(0, 100));
+    // Use message as-is, or empty string if only files (GPT-4 will extract content)
+    const processMessage = message || "";
+
+    console.log(`💬 Processing NUBIA request with SMART CONTEXT and ${files.length} files:`, message?.substring(0, 100));
 
     // Check usage limits first with Firebase
     const subscription = await firebaseService.getSubscriptionByUserId(req.user!.id);
@@ -562,87 +566,24 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
       }
     }
 
-    // Get conversation history for this user
     const userId = req.user!.id;
-    const history = conversationHistory.get(userId) || {
-      messages: [],
-      lastExcelStructure: null
-    };
 
-    // Build context for GPT if available and requested
-    let contextString = '';
-    let gptMessages: any[] = [];
-
-    if (includeContext && (history.messages.length > 0 || history.lastExcelStructure)) {
-      contextString = buildContextFromHistory(history);
-    }
-
-    // Build messages array with context
-    gptMessages = [
-      {
-        role: 'system',
-        content: LEGENDARY_NUBIA_SYSTEM_PROMPT
-      }
-    ];
-
-    // Add recent conversation history for continuity - extended for better context
-    if (includeContext && history.messages.length > 0) {
-      const recentMessages = formatHistoryForGPT(history.messages.slice(-5)); // Extended from 2 to 5 for better thinking
-      gptMessages.push(...recentMessages);
-    }
-
-    // Handle files with integrated GPT-4 + DeepSeek analysis
-    let rawResponse = '';
-    let structureFromFI = null;
+    // DEBUG: Re-enable smart context for files to debug GPT-4 extraction
+    let result;
     if (Array.isArray(files) && files.length > 0) {
-      try {
-        // Process all files (GPT-4 extraction for images)
-        const processedFiles = await fileProcessingService.processUploadedFiles(files);
-
-        // Use unified financial intelligence with file processing
-        const fullUserMessage = contextString ? `${contextString}\nCurrent request: ${message}` : message;
-        const enhancedPrompt = await fileProcessingService.getEnhancedPromptForProcessing(fullUserMessage, processedFiles);
-
-        // Process through unified financial intelligence service
-        const FinancialIntelligenceService = require('./services/financialIntelligence');
-        const financialIntelligence = new FinancialIntelligenceService();
-        const result = await financialIntelligence.processFinancialCommand(enhancedPrompt);
-        rawResponse = result.chatResponse;
-
-        // IMPORTANT: Get the already-parsed structure from the result
-        structureFromFI = result.structure;
-        console.log('🔍 SERVER.TS FILES: Got structure from FI:', structureFromFI ? 'EXISTS' : 'NULL');
-        console.log('🔍 SERVER.TS FILES: Result object keys:', Object.keys(result));
-
-      } catch (error) {
-        console.error('Error processing files:', error);
-
-        // Fallback to regular text processing if file processing fails
-        const userMessageContent = contextString ?
-          `${contextString}\nCurrent request: ${message}\n\n[Error processing uploaded files: ${(error as Error).message}]` :
-          `${message}\n\n[Error processing uploaded files: ${(error as Error).message}]`;
-
-        // Process through unified financial intelligence service
-        const result = await financialIntelligence.processFinancialCommand(userMessageContent);
-        rawResponse = result.chatResponse;
-
-        // IMPORTANT: Get the already-parsed structure from the result
-        structureFromFI = result.structure;
-      }
+      // Process with files using smart context - with debugging enabled
+      console.log('🔍 DEBUG: Processing file with smart context to identify GPT-4 extraction issue');
+      result = await financialIntelligence.processWithSmartContextAndFiles(processMessage, userId, files, fileProcessingService);
     } else {
-      // No files - regular text processing
-      const userMessageContent = contextString ?
-        `${contextString}\nCurrent request: ${message}` :
-        message;
-
-      // Process through unified financial intelligence service
-      const result = await financialIntelligence.processFinancialCommand(userMessageContent);
-      rawResponse = result.chatResponse;
-
-      // IMPORTANT: Get the already-parsed structure from the result
-      structureFromFI = result.structure;
+      // No files - use regular smart context
+      result = await financialIntelligence.processWithSmartContext(processMessage, userId);
     }
-    console.log('🎯 NUBIA two-block response received');
+
+    const rawResponse = result.chatResponse;
+    const structureFromFI = result.structure;
+    console.log('🎯 NUBIA SMART CONTEXT response received');
+    console.log('🔍 Smart context used:', result.contextUsed);
+    console.log('🔍 Response enhanced:', result.enhanced);
 
     // Use the already-parsed structure from financialIntelligence
     const chatResponse = rawResponse; // This is already just the chat response
@@ -657,39 +598,8 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
     console.log('🔍 SERVER.TS: hasValidExcel:', hasValidExcel);
     console.log('🔍 SERVER.TS: structure exists:', !!structure);
 
-    // Store this interaction in conversation history
+    // Generate message ID for this interaction
     const messageId = generateMessageId();
-    const conversationEntry = {
-      id: messageId,
-      timestamp: Date.now(),
-      userMessage: message,
-      gptResponse: chatResponse,
-      excelStructure: hasValidExcel ? structure : null,
-      rawResponse: rawResponse,
-      filesUploaded: Array.isArray(files) ? files.map((f: any) => ({ name: f.originalname, size: f.size, type: f.mimetype })) : []
-    };
-
-    // Update conversation history
-    history.messages.push(conversationEntry);
-    if (hasValidExcel) {
-      history.lastExcelStructure = structure;
-    }
-
-    // Keep only last 10 interactions
-    if (history.messages.length > 10) {
-      history.messages = history.messages.slice(-10);
-    }
-
-    // Store updated history in-memory and backup to Firebase
-    conversationHistory.set(userId, history);
-
-    // Backup to Firebase for persistence (non-blocking)
-    firebaseService.saveConversationHistory(userId, {
-      messages: history.messages,
-      lastExcelStructure: history.lastExcelStructure,
-      uploadedDocuments: history.uploadedDocuments || [],
-      extractedTotals: history.extractedTotals || []
-    }).catch(error => console.error('Firebase backup error:', error));
 
     if (hasValidExcel) {
       console.log('📊 SERVER.TS: Valid Excel structure detected - generating file');
@@ -707,7 +617,7 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
           });
         }
 
-        // Return standardized response shape
+        // Return standardized response shape with smart context info
         return res.json({
           success: true,
           type: 'excel',
@@ -719,7 +629,12 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
             structure: structure
           },
           conversationId: messageId,
-          filesProcessed: Array.isArray(files) ? files.length : 0
+          filesProcessed: Array.isArray(files) ? files.length : 0,
+          smartContext: {
+            contextUsed: result.contextUsed,
+            enhanced: result.enhanced,
+            tokensUsed: result.tokensUsed
+          }
         });
 
       } catch (error) {
@@ -730,7 +645,12 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
           type: 'chat',
           message: chatResponse + " (Note: Excel generation encountered an issue, but I've provided the analysis above.)",
           conversationId: messageId,
-          filesProcessed: Array.isArray(files) ? files.length : 0
+          filesProcessed: Array.isArray(files) ? files.length : 0,
+          smartContext: {
+            contextUsed: result.contextUsed,
+            enhanced: result.enhanced,
+            tokensUsed: result.tokensUsed
+          }
         });
       }
     }
@@ -741,7 +661,12 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
       type: 'chat',
       message: chatResponse,
       conversationId: messageId,
-      filesProcessed: Array.isArray(files) ? files.length : 0
+      filesProcessed: Array.isArray(files) ? files.length : 0,
+      smartContext: {
+        contextUsed: result.contextUsed,
+        enhanced: result.enhanced,
+        tokensUsed: result.tokensUsed
+      }
     });
 
   } catch (error) {
@@ -753,10 +678,11 @@ app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, async
   }
 });
 
-// Universal chat endpoint with conversation memory
-app.post('/api/chat', authMiddleware, async (req, res) => {
+// TEST: Smart context without auth for testing
+app.post('/api/test/smart-context-files', async (req, res) => {
   try {
-    const { message, includeContext = true } = req.body;
+    const { message } = req.body;
+    const testUserId = 'test-user-123';
 
     if (!message) {
       return res.status(400).json({
@@ -765,10 +691,49 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       });
     }
 
-    console.log('💬 Processing NUBIA legendary accounting request:', message.substring(0, 100));
+    console.log('🧪 Testing smart context with files (no auth):', message);
+
+    // Test smart context functionality directly
+    const result = await financialIntelligence.processWithSmartContext(message, testUserId);
+
+    return res.json({
+      success: true,
+      type: 'chat',
+      message: result.chatResponse,
+      smartContext: {
+        contextUsed: result.contextUsed,
+        enhanced: result.enhanced,
+        tokensUsed: result.tokensUsed
+      },
+      testMode: true
+    });
+
+  } catch (error) {
+    console.error('❌ Test smart context error:', error);
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message
+    });
+  }
+});
+
+// NEW: Smart context chat endpoint (two-stage reasoning)
+app.post('/api/chat/smart', authMiddleware, async (req, res) => {
+  try {
+    const { message } = req.body;
+    const userId = req.user!.id;
+
+    if (!message) {
+      return res.status(400).json({
+        success: false,
+        error: 'Message is required'
+      });
+    }
+
+    console.log('🧠 Smart Context Chat:', message.substring(0, 100));
 
     // Check usage limits first with Firebase
-    const subscription = await firebaseService.getSubscriptionByUserId(req.user!.id);
+    const subscription = await firebaseService.getSubscriptionByUserId(userId);
     if (subscription && subscription.automationsLimit !== -1) {
       if (subscription.automationsUsed >= subscription.automationsLimit) {
         return res.status(429).json({
@@ -778,158 +743,125 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
       }
     }
 
-    // Get conversation history for this user
-    const userId = req.user!.id;
-    const history = conversationHistory.get(userId) || {
-      messages: [],
-      lastExcelStructure: null
-    };
+    // Use smart context processing (two-stage reasoning)
+    const result = await financialIntelligence.processWithSmartContext(message, userId);
 
-    // Check if context is needed and available
-    const messageNeedsContext = needsContext(message);
-    if (messageNeedsContext && !history.lastExcelStructure) {
+    // Check if it's accounting (has structure) or just chat
+    if (result.structure) {
+      // Generate Excel for accounting queries
+      console.log('📊 SMART CONTEXT: Generating Excel with structure');
+      const excelResult = await excelGenerator.generateFromStructure(result.structure, userId);
+
+      // Update usage if successful
+      if (subscription && excelResult?.success) {
+        await firebaseService.updateSubscription(subscription.id, {
+          automationsUsed: subscription.automationsUsed + 1
+        });
+      }
+
+      return res.json({
+        success: true,
+        type: 'excel',
+        message: result.chatResponse,
+        contextUsed: result.contextUsed,
+        enhanced: result.enhanced,
+        excelData: {
+          filename: excelResult?.filename || 'unknown.xlsx',
+          filepath: excelResult?.filepath || '',
+          summary: result.structure?.meta?.summary || 'Professional Excel workbook created',
+          structure: result.structure
+        }
+      });
+    } else {
+      // Just chat response
       return res.json({
         success: true,
         type: 'chat',
-        message: "I don't have any previous context from our conversation. Please specify what you'd like me to create or change, or provide more details about the financial document you're referring to."
+        message: result.chatResponse,
+        contextUsed: result.contextUsed,
+        enhanced: result.enhanced
       });
     }
 
-    // Build context for GPT if available and requested
-    let contextString = '';
-    let gptMessages: any[] = [];
-
-    if (includeContext && (history.messages.length > 0 || history.lastExcelStructure)) {
-      contextString = buildContextFromHistory(history);
-    }
-
-    // Build messages array with LEGENDARY NUBIA system prompt
-    gptMessages = [
-      {
-        role: 'system',
-        content: LEGENDARY_NUBIA_SYSTEM_PROMPT
-      }
-    ];
-
-    // Add recent conversation history for continuity - extended for better context
-    if (includeContext && history.messages.length > 0) {
-      const recentMessages = formatHistoryForGPT(history.messages.slice(-5)); // Extended from 2 to 5 for better thinking
-      gptMessages.push(...recentMessages);
-    }
-
-    // Add current user message with context
-    const userMessageContent = contextString ?
-      `${contextString}\nCurrent request: ${message}` :
-      message;
-
-    gptMessages.push({
-      role: 'user',
-      content: userMessageContent
+  } catch (error) {
+    console.error('❌ Smart context chat error:', error);
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message
     });
+  }
+});
 
-    // Single unified call using LEGENDARY NUBIA financial intelligence with context
-    const result = await financialIntelligence.processFinancialCommand(userMessageContent);
-    const rawResponse = result.chatResponse;
-    console.log('🎯 NUBIA two-block response received');
+// Universal chat endpoint with SMART CONTEXT (two-stage reasoning) and Firebase persistence
+app.post('/api/chat', authMiddleware, async (req, res) => {
+  try {
+    const { message } = req.body;
+    const userId = req.user!.id;
 
-    // Use the already-parsed structure from financialIntelligence (same as with-files endpoint)
-    const chatResponse = rawResponse; // This is already just the chat response
-    const structure = result.structure; // Use the pre-parsed structure
-    console.log('🔍 SERVER.TS: Using pre-parsed structure:', structure ? 'EXISTS' : 'NULL');
-
-    // Validate structure to determine if Excel is needed - only validate if structure exists
-    const validation = structure ? validateExcelStructure(structure) : { valid: false, error: 'No structure provided' };
-    const hasValidExcel = validation.valid && structure;
-
-    console.log('🔍 SERVER.TS: Excel validation result:', validation);
-    console.log('🔍 SERVER.TS: hasValidExcel:', hasValidExcel);
-    console.log('🔍 SERVER.TS: structure exists:', !!structure);
-
-    // Store this interaction in conversation history
-    const messageId = generateMessageId();
-    const conversationEntry = {
-      id: messageId,
-      timestamp: Date.now(),
-      userMessage: message,
-      gptResponse: chatResponse,
-      excelStructure: hasValidExcel ? structure : null,
-      rawResponse: rawResponse
-    };
-
-    // Update conversation history
-    history.messages.push(conversationEntry);
-    if (hasValidExcel) {
-      history.lastExcelStructure = structure;
+    if (!message) {
+      return res.status(400).json({
+        success: false,
+        error: 'Message is required'
+      });
     }
 
-    // Keep only last 10 interactions
-    if (history.messages.length > 10) {
-      history.messages = history.messages.slice(-10);
+    console.log('🧠 Processing NUBIA with Smart Context (Two-Stage Reasoning):', message.substring(0, 100));
+
+    // Check usage limits first with Firebase
+    const subscription = await firebaseService.getSubscriptionByUserId(userId);
+    if (subscription && subscription.automationsLimit !== -1) {
+      if (subscription.automationsUsed >= subscription.automationsLimit) {
+        return res.status(429).json({
+          error: 'Usage limit exceeded',
+          message: `You've reached your monthly limit of ${subscription.automationsLimit} automations. Please upgrade your plan.`
+        });
+      }
     }
 
-    // Store updated history in-memory and backup to Firebase
-    conversationHistory.set(userId, history);
+    // Use smart context processing (two-stage reasoning with Firebase persistence)
+    const result = await financialIntelligence.processWithSmartContext(message, userId);
 
-    // Backup to Firebase for persistence (non-blocking)
-    firebaseService.saveConversationHistory(userId, {
-      messages: history.messages,
-      lastExcelStructure: history.lastExcelStructure,
-      uploadedDocuments: history.uploadedDocuments || [],
-      extractedTotals: history.extractedTotals || []
-    }).catch(error => console.error('Firebase backup error:', error));
+    // Check if it's accounting (has structure) or just chat
+    if (result.structure) {
+      // Generate Excel for accounting queries
+      console.log('📊 SMART CONTEXT: Generating Excel with structure');
+      const excelResult = await excelGenerator.generateFromStructure(result.structure, userId);
 
-    if (hasValidExcel) {
-      console.log('📊 SERVER.TS: Valid Excel structure detected - generating file');
-      console.log('📊 SERVER.TS: Structure:', JSON.stringify(structure, null, 2).substring(0, 500));
+      // Update usage if successful
+      if (subscription && excelResult?.success) {
+        await firebaseService.updateSubscription(subscription.id, {
+          automationsUsed: subscription.automationsUsed + 1
+        });
+      }
 
-      try {
-        // Generate Excel file using parsed structure
-        const result = await excelGenerator.generateFromStructure(structure, req.user!.id);
-        console.log('📊 SERVER.TS: Excel generation result:', result);
-
-        // Increment usage counter on success with Firebase
-        if (subscription && result.success) {
-          await firebaseService.updateSubscription(subscription.id, {
-            automationsUsed: subscription.automationsUsed + 1
-          });
+      return res.json({
+        success: true,
+        type: 'excel',
+        message: result.chatResponse,
+        contextUsed: result.contextUsed,
+        enhanced: result.enhanced,
+        reasoning: result.reasoning,
+        excelData: {
+          filename: excelResult?.filename || 'unknown.xlsx',
+          filepath: excelResult?.filepath || '',
+          summary: result.structure?.meta?.summary || 'Professional Excel workbook created',
+          structure: result.structure
         }
-
-        // Return standardized response shape
-        return res.json({
-          success: true,
-          type: 'excel',
-          message: chatResponse,
-          excelData: {
-            filename: result.filename,
-            filepath: result.filepath,
-            summary: (structure as any)?.meta?.summary || 'Professional Excel workbook created',
-            structure: structure
-          },
-          conversationId: messageId
-        });
-
-      } catch (error) {
-        console.error('❌ Excel generation error:', error);
-        // Return chat response with error note
-        return res.json({
-          success: true,
-          type: 'chat',
-          message: chatResponse + " (Note: Excel generation encountered an issue, but I've provided the analysis above.)",
-          conversationId: messageId
-        });
-      }
+      });
+    } else {
+      // Just chat response
+      return res.json({
+        success: true,
+        type: 'chat',
+        message: result.chatResponse,
+        contextUsed: result.contextUsed,
+        enhanced: result.enhanced,
+        reasoning: result.reasoning
+      });
     }
-
-    // Just conversation - no valid Excel structure
-    res.json({
-      success: true,
-      type: 'chat',
-      message: chatResponse,
-      conversationId: messageId
-    });
 
   } catch (error) {
-    console.error('❌ NUBIA Chat API error:', error);
+    console.error('❌ Smart context chat error:', error);
     res.status(500).json({
       success: false,
       error: (error as Error).message
@@ -939,6 +871,50 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
 
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Test route works!' });
+});
+
+// Test endpoint for smart context (no auth required for testing)
+app.post('/api/test/smart-context', async (req, res) => {
+  try {
+    const { message } = req.body;
+
+    if (!message) {
+      return res.status(400).json({
+        success: false,
+        error: 'Message is required'
+      });
+    }
+
+    console.log('🧪 Testing Smart Context:', message.substring(0, 100));
+
+    const SmartContextManager = require('./services/smartContextManager');
+    const smartContext = new SmartContextManager();
+
+    const testUserId = 'test-user-123';
+    const systemPrompt = `You are Nubia, an expert Financial Intelligence assistant. Generate professional financial documents and analysis.`;
+
+    const result = await smartContext.processWithSmartContext(
+      message,
+      systemPrompt,
+      testUserId
+    );
+
+    res.json({
+      success: true,
+      message: result.chatResponse,
+      contextUsed: result.contextUsed,
+      enhanced: result.enhanced,
+      reasoning: result.reasoning,
+      tokensUsed: result.tokensUsed
+    });
+
+  } catch (error) {
+    console.error('❌ Smart context test failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Smart context test failed'
+    });
+  }
 });
 
 // API Routes - use the integrated routes above instead of separate route files

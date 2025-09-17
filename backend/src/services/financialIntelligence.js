@@ -2,6 +2,7 @@ require('dotenv').config();
 const OpenAI = require('openai');
 const { extractTaggedBlock, safeParseJSON, validateExcelStructure } = require('../utils/sectionParsers');
 const { LEGENDARY_NUBIA_SYSTEM_PROMPT, EXCEL_FORMATTING_INSTRUCTIONS } = require('../constants/systemPrompts');
+const SmartContextManager = require('./smartContextManager');
 
 class FinancialIntelligenceService {
   constructor() {
@@ -19,6 +20,9 @@ class FinancialIntelligenceService {
       timeout: 300000, // 5 minutes - allow proper thinking time
       maxRetries: 1
     });
+
+    // Initialize smart context manager
+    this.smartContext = new SmartContextManager();
   }
 
   // LEGENDARY NUBIA: Enhanced thinking with temperature 0
@@ -433,6 +437,132 @@ Return ONLY the enhanced JSON structure, no explanation needed.`;
       temperature: 0,
       rulesFirst: true
     };
+  }
+
+  // NEW: Smart context-aware processing (two-stage reasoning)
+  async processWithSmartContext(message, userId, options = {}) {
+    if (!message || typeof message !== 'string' || message.trim() === '') {
+      throw new Error('Message parameter is required and must be a non-empty string');
+    }
+
+    if (!userId) {
+      throw new Error('UserId is required for smart context processing');
+    }
+
+    console.log('🧠 SMART CONTEXT: Starting two-stage reasoning process');
+    console.log('🎯 User ID:', userId);
+    console.log('📝 Message length:', message.length);
+
+    try {
+      // Use smart context manager for two-stage reasoning
+      const contextResult = await this.smartContext.processWithSmartContext(
+        message,
+        LEGENDARY_NUBIA_SYSTEM_PROMPT,
+        userId
+      );
+
+      // Parse the response to extract Excel structure if present
+      const raw = contextResult.chatResponse;
+      const chatResponse = extractTaggedBlock(raw, 'CHAT_RESPONSE') || contextResult.chatResponse;
+      const excelDataBlock = extractTaggedBlock(raw, 'EXCEL_DATA');
+      const structure = safeParseJSON(excelDataBlock);
+
+      console.log('📊 Smart Context Result:', {
+        hasStructure: !!structure,
+        contextUsed: contextResult.contextUsed,
+        enhanced: contextResult.enhanced,
+        tokensUsed: contextResult.tokensUsed
+      });
+
+      // Validate structure if it exists
+      if (structure) {
+        const validation = validateExcelStructure(structure);
+        if (!validation.valid) {
+          console.log('⚠️ Structure validation failed, falling back to chat response');
+          return {
+            success: true,
+            chatResponse,
+            structure: null,
+            tokensUsed: contextResult.tokensUsed,
+            contextUsed: contextResult.contextUsed,
+            enhanced: contextResult.enhanced
+          };
+        }
+      }
+
+      return {
+        success: true,
+        chatResponse,
+        structure,
+        tokensUsed: contextResult.tokensUsed,
+        contextUsed: contextResult.contextUsed,
+        enhanced: contextResult.enhanced,
+        reasoning: contextResult.reasoning
+      };
+
+    } catch (error) {
+      console.error('❌ Smart context processing failed:', error);
+      // Fallback to regular processing
+      console.log('🔄 Falling back to regular processing...');
+      return await this.processFinancialCommand(message, options);
+    }
+  }
+
+  // NEW: Smart context-aware processing with file support (two-stage reasoning)
+  async processWithSmartContextAndFiles(message, userId, files = [], fileProcessingService = null, options = {}) {
+    if (typeof message !== 'string') {
+      throw new Error('Message parameter must be a string');
+    }
+    // Allow empty message when files are provided (GPT-4 will extract content)
+    if (!message.trim() && (!files || files.length === 0)) {
+      throw new Error('Message or files are required');
+    }
+    if (!userId) {
+      throw new Error('UserId is required for smart context processing');
+    }
+
+    console.log('🧠 SMART CONTEXT WITH FILES: Starting two-stage reasoning process');
+    console.log('🎯 User ID:', userId);
+    console.log('📝 Message length:', message.length);
+    console.log('📎 Files count:', files.length);
+
+    try {
+      // Use smart context manager for two-stage reasoning with files
+      const contextResult = await this.smartContext.processWithSmartContextAndFiles(
+        message,
+        LEGENDARY_NUBIA_SYSTEM_PROMPT,
+        userId,
+        files,
+        fileProcessingService
+      );
+
+      // Parse the response to extract Excel structure if present
+      const raw = contextResult.chatResponse;
+      const chatResponse = extractTaggedBlock(raw, 'CHAT_RESPONSE') || contextResult.chatResponse;
+      const excelDataBlock = extractTaggedBlock(raw, 'EXCEL_DATA');
+      const structure = safeParseJSON(excelDataBlock);
+
+      console.log('🔄 SMART CONTEXT WITH FILES: Response processed');
+      console.log('📊 Structure detected:', structure ? 'YES' : 'NO');
+      console.log('🎯 Context used:', contextResult.contextUsed);
+      console.log('✨ Enhanced:', contextResult.enhanced);
+
+      return {
+        chatResponse,
+        structure,
+        contextUsed: contextResult.contextUsed,
+        enhanced: contextResult.enhanced,
+        reasoning: contextResult.reasoning,
+        tokensUsed: contextResult.tokensUsed,
+        rulesFirst: true
+      };
+
+    } catch (error) {
+      console.error('❌ Smart context with files failed, falling back to regular processing:', error);
+
+      // Fallback to regular processing
+      return this.processFinancialCommand(message, options);
+    }
   }
 }
 

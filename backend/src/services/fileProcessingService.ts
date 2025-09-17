@@ -161,13 +161,24 @@ export class FileProcessingService {
 
       const extractedContent = response.choices[0]?.message?.content || '{}';
 
+      // DEBUG: Log the raw response to understand what GPT-4 is returning
+      logger.info(`🔍 RAW GPT-4 RESPONSE for ${originalName}:`, extractedContent);
+      console.log(`🔍 CONSOLE DEBUG - GPT-4 RAW RESPONSE for ${originalName}:`, extractedContent);
+      console.log(`🔍 CONSOLE DEBUG - Response type:`, typeof extractedContent);
+      console.log(`🔍 CONSOLE DEBUG - Response length:`, extractedContent ? extractedContent.length : 'null/undefined');
+
       // Parse the JSON response
       let extractedData;
       try {
         extractedData = JSON.parse(extractedContent);
-        logger.info(`GPT-4 extracted data from ${originalName}:`, JSON.stringify(extractedData, null, 2));
+        logger.info(`✅ GPT-4 extracted data from ${originalName}:`, JSON.stringify(extractedData, null, 2));
+
+        // Check if the extraction is empty or invalid
+        if (!extractedData || Object.keys(extractedData).length === 0) {
+          logger.warn(`⚠️ GPT-4 returned empty data for ${originalName}. Raw response:`, extractedContent);
+        }
       } catch (e) {
-        logger.warn(`Failed to parse JSON from image ${originalName}:`, e);
+        logger.warn(`❌ Failed to parse JSON from image ${originalName}:`, e);
         logger.warn(`Raw GPT-4 response:`, extractedContent);
         extractedData = {
           error: 'Failed to parse extracted data',

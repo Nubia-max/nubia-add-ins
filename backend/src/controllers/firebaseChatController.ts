@@ -974,6 +974,107 @@ export const getDocumentContext = async (req: AuthenticatedRequest, res: Respons
   }
 };
 
+// NEW: Smart context chat endpoint - two-stage reasoning
+export const handleSmartContextChat = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { message } = req.body;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    if (!message) {
+      return res.status(400).json({
+        success: false,
+        error: 'Message is required'
+      });
+    }
+
+    console.log('🧠 Smart Context Chat:', message.substring(0, 100));
+
+    // Check usage limits
+    const subscription = await firebaseService.getSubscriptionByUserId(userId);
+
+    if (subscription && subscription.automationsLimit !== -1) {
+      if (subscription.automationsUsed >= subscription.automationsLimit) {
+        return res.status(429).json({
+          error: 'Usage limit exceeded',
+          message: `You've reached your monthly limit of ${subscription.automationsLimit} automations. Please upgrade your plan.`
+        });
+      }
+    }
+
+    // Use smart context processing (two-stage reasoning)
+    const result = await financialIntelligence.processWithSmartContext(message, userId);
+
+    let excelResult: ExcelResult | null = null;
+
+    // Check if it's accounting (has structure) or just chat
+    if (result.structure) {
+      // Generate Excel for accounting queries
+      console.log('📊 SMART CONTEXT: Generating Excel with structure:', JSON.stringify(result.structure, null, 2).substring(0, 500));
+      excelResult = await excelGenerator.generateWithCompleteFreedom(
+        result.structure,
+        userId
+      );
+      console.log('📊 SMART CONTEXT: Excel generation result:', excelResult);
+
+      // Update usage if successful
+      if (subscription && excelResult?.success) {
+        await firebaseService.updateSubscription(subscription.id, {
+          automationsUsed: subscription.automationsUsed + 1
+        });
+      }
+
+      return res.json({
+        success: true,
+        type: 'excel',
+        message: result.chatResponse,
+        contextUsed: result.contextUsed,
+        enhanced: result.enhanced,
+        reasoning: result.reasoning,
+        excelData: {
+          filename: excelResult?.filename || 'unknown.xlsx',
+          filepath: excelResult?.filepath || '',
+          summary: excelResult?.structure || 'Excel workbook generated',
+          worksheets: excelResult?.worksheets || []
+        }
+      });
+    } else {
+      // Just chat response
+      return res.json({
+        success: true,
+        type: 'chat',
+        message: result.chatResponse,
+        contextUsed: result.contextUsed,
+        enhanced: result.enhanced,
+        reasoning: result.reasoning
+      });
+    }
+
+  } catch (error: any) {
+    logger.error('Smart context chat error:', error);
+
+    let errorMessage = 'Processing error occurred';
+    let statusCode = 500;
+
+    if (error.message?.includes('quota')) {
+      errorMessage = 'DeepSeek quota exceeded. Please try again later.';
+      statusCode = 429;
+    } else if (error.message?.includes('API key')) {
+      errorMessage = 'API configuration error.';
+      statusCode = 503;
+    }
+
+    res.status(statusCode).json({
+      success: false,
+      error: errorMessage,
+      type: 'error'
+    });
+  }
+};
+
 // Test endpoint for Nubia verification with Firebase
 export const testNubia = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -1001,6 +1102,7 @@ export const testNubia = async (req: AuthenticatedRequest, res: Response) => {
 export default {
   handleUniversalChat,
   handleUniversalChatWithFiles,
+  handleSmartContextChat,
   getChatHistory,
   deleteChatSession,
   clearConversation,
