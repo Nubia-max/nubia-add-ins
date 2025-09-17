@@ -70,7 +70,32 @@ interface ProcessedFile {
 }
 
 export class FileProcessingService {
-  
+
+  // Helper method to create financial summary from structured data
+  private createFinancialSummary(structuredData: any): string {
+    let summary = '';
+
+    if (structuredData.accounts?.length > 0) {
+      summary += `Accounts found: ${structuredData.accounts.length}\n`;
+      structuredData.accounts.forEach((account: any) => {
+        summary += `- ${account.name}: ${account.amount} (${account.type})\n`;
+      });
+    }
+
+    if (structuredData.totals?.length > 0) {
+      summary += `\nTotals:\n`;
+      structuredData.totals.forEach((total: any) => {
+        summary += `- ${total.label}: ${total.amount}\n`;
+      });
+    }
+
+    if (structuredData.metadata) {
+      summary += `\nDocument info: ${JSON.stringify(structuredData.metadata, null, 2)}`;
+    }
+
+    return summary.trim();
+  }
+
   // Process image with GPT-4 Vision (extraction only)
   async processImage(filePathOrBuffer: string | Buffer, originalName: string): Promise<ProcessedFile> {
     try {
@@ -94,18 +119,30 @@ export class FileProcessingService {
             content: [
               {
                 type: 'text',
-                text: `You are a data extraction tool. Extract ONLY visible text and numbers from this image. Do NOT analyze, calculate, or make accounting decisions.
+                text: `Analyze this image and extract the content appropriately based on what type of document it is:
 
-                Return visible data in this JSON format:
+                **For TEXT QUESTIONS/PROBLEMS** (like homework, exam questions, text-based accounting problems):
+                - Extract the EXACT text as written, preserving all numbers and formatting
+                - Return the complete question/text exactly as shown
+
+                **For FINANCIAL DOCUMENTS** (like ledgers, bank statements, receipts, invoices):
+                - Extract structured financial data with proper labeling
+                - Include account names, amounts, dates, and categories
+                - Organize the data clearly for accounting analysis
+
+                Return your response as a JSON object in this format:
                 {
-                  "documentType": "receipt|invoice|statement|other|non_financial",
-                  "date": "exact date text if visible, null if not",
-                  "vendor": "exact vendor name if visible, null if not",
-                  "amounts": [list of all numbers visible],
-                  "text": "all visible text exactly as shown"
+                  "documentType": "text_question|financial_document|receipt|statement|ledger|other",
+                  "extractedText": "exact text for text questions, or structured data for documents",
+                  "structuredData": {
+                    "accounts": [{"name": "account name", "amount": 000, "type": "debit/credit"}],
+                    "totals": [{"label": "description", "amount": 000}],
+                    "dates": ["any dates found"],
+                    "metadata": {"bank": "name", "period": "timeframe", "currency": "USD"}
+                  }
                 }
 
-                NO analysis. NO calculations. NO accounting. Just extract what you see.`
+                CRITICAL: For text questions, preserve exact wording. For documents, extract structured data properly. Always respond with valid JSON.`
               },
               {
                 type: 'image_url',
@@ -140,11 +177,42 @@ export class FileProcessingService {
 
       logger.info(`Image extracted successfully: ${originalName}`);
 
+      // Handle different document types appropriately
+      let content: string;
+      let processedExtractedData: any;
+
+      if (extractedData?.documentType === 'text_question') {
+        // For text questions, use the exact text
+        content = extractedData.extractedText || 'Unable to extract text from image';
+        processedExtractedData = {
+          type: 'text_question',
+          extractedText: content
+        };
+      } else {
+        // For financial documents, create structured summary
+        if (extractedData?.structuredData) {
+          content = `Financial document analysis from ${originalName}`;
+          processedExtractedData = {
+            type: extractedData.documentType || 'financial_document',
+            extractedText: extractedData.extractedText,
+            structuredData: extractedData.structuredData,
+            summary: this.createFinancialSummary(extractedData.structuredData)
+          };
+        } else {
+          // Fallback for any extraction format
+          content = extractedData?.extractedText || extractedData?.text || 'Unable to extract text from image';
+          processedExtractedData = {
+            type: 'unknown',
+            extractedText: content
+          };
+        }
+      }
+
       return {
         originalName,
         type: 'image',
-        content: `Extracted financial data from ${originalName}`,
-        extractedData
+        content: content,
+        extractedData: processedExtractedData
       };
 
     } catch (error) {
@@ -332,22 +400,25 @@ export class FileProcessingService {
       enhancedPrompt += '\n\n--- FINANCIAL DATA FROM UPLOADED FILES ---\n';
 
       for (const file of processedFiles) {
-        enhancedPrompt += `\n[FILE: ${file.originalName}]\n`;
-
         switch (file.type) {
           case 'image':
-            if (file.extractedData && !file.extractedData.error) {
-              if (file.extractedData.documentType === 'non_financial') {
-                enhancedPrompt += `NON-FINANCIAL IMAGE: ${file.extractedData.rawText}\n`;
-                enhancedPrompt += `Note: This appears to be a non-financial document. Please respond accordingly.\n`;
-              } else if (file.extractedData.totalAmount || file.extractedData.items?.length > 0) {
-                enhancedPrompt += `EXTRACTED FINANCIAL DATA:\n${JSON.stringify(file.extractedData, null, 2)}\n`;
-              } else {
-                enhancedPrompt += `LIMITED FINANCIAL DATA EXTRACTED: ${JSON.stringify(file.extractedData, null, 2)}\n`;
-                enhancedPrompt += `Note: Minimal financial information was found in this image.\n`;
+            if (file.extractedData?.type === 'text_question') {
+              // For text questions, add the exact text without any wrapper
+              enhancedPrompt += `${file.extractedData.extractedText}\n`;
+            } else if (file.extractedData?.structuredData) {
+              // For financial documents, add structured context
+              enhancedPrompt += `FINANCIAL DOCUMENT [${file.originalName}]:\n`;
+              enhancedPrompt += `${file.extractedData.summary}\n`;
+              if (file.extractedData.extractedText) {
+                enhancedPrompt += `Raw text: ${file.extractedData.extractedText}\n`;
               }
+            } else if (file.extractedData?.extractedText) {
+              // Fallback - use extracted text with minimal context
+              enhancedPrompt += `[${file.originalName}]: ${file.extractedData.extractedText}\n`;
+            } else if (file.content) {
+              enhancedPrompt += `${file.content}\n`;
             } else {
-              enhancedPrompt += `IMAGE PROCESSING ERROR: ${file.extractedData?.error || 'Unknown error'}\n`;
+              enhancedPrompt += `IMAGE PROCESSING ERROR: Unable to extract text from image\n`;
             }
             break;
 
