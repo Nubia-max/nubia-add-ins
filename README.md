@@ -1,349 +1,182 @@
-# Nubia - Excel Automation Chatbot
+# Nubia - Excel Add-in for AI-Powered Automation
 
-![Nubia Logo](https://via.placeholder.com/200x100/4472C4/FFFFFF?text=NUBIA)
+Nubia is an Excel add-in that provides AI-powered automation and assistance directly within Microsoft Excel. Built with Office.js and powered by a Node.js backend with Firebase integration.
 
-**Nubia** is a production-ready Excel automation chatbot that combines an intelligent floating bubble GUI with powerful automation capabilities. Built as a modern monorepo, it features real-time chat, voice commands, and both visual and background Excel automation modes.
+## Architecture
 
-## 🚀 Features
+- **Add-in Frontend**: Office.js-based Excel add-in (TypeScript/HTML/CSS)
+- **Backend API**: Node.js Express server with Firebase integration
+- **Shared Types**: Common TypeScript definitions
+- **Firebase Functions**: Cloud functions for extended functionality
 
-- **📱 Floating Bubble Interface**: Always-on-top draggable bubble that expands to a full chat interface
-- **🤖 Intelligent Chat**: Real-time conversation with Excel automation assistance
-- **🎤 Voice Commands**: Built-in voice recording with Web Speech API
-- **⚡ Dual Automation Modes**:
-  - **Visual Mode**: Uses PyAutoGUI for on-screen automation with progress tracking
-  - **Background Mode**: Uses OpenPyXL for fast, invisible Excel manipulation
-- **🔒 Secure Authentication**: JWT-based authentication with bcrypt password hashing
-- **💾 PostgreSQL Database**: Robust data storage with Prisma ORM
-- **🔄 Real-time Updates**: WebSocket communication for live progress updates
-- **🐳 Docker Support**: Complete containerization for easy deployment
-- **🛠️ TypeScript**: Full type safety across the entire stack
-
-## 🏗️ Architecture
+## Project Structure
 
 ```
 Nubia/
-├── desktop/          # Electron + React floating bubble GUI
-├── backend/          # Node.js + Express API with PostgreSQL
-├── automation/       # Python FastAPI for Excel automation
-├── shared/           # Shared configs and TypeScript types
-├── nginx/            # Nginx configuration for production
-└── docker-compose.yml # Multi-service orchestration
+├── add-in/                     # Excel add-in (Office.js)
+│   ├── src/
+│   │   ├── taskpane/          # Main task pane UI
+│   │   ├── commands/          # Ribbon command handlers
+│   │   └── functions/         # Custom Excel functions
+│   ├── manifest.xml           # Add-in manifest
+│   └── webpack.config.js      # Build configuration
+├── backend/                    # Node.js API server
+├── shared/                     # Shared TypeScript types
+├── functions/                  # Firebase Cloud Functions
+└── package.json               # Root workspace configuration
 ```
 
-### Tech Stack
+## Getting Started
 
-- **Frontend**: Electron, React, TypeScript, TailwindCSS
-- **Backend**: Node.js, Express, TypeScript, Prisma ORM
-- **Database**: PostgreSQL with Redis caching
-- **Automation**: Python, FastAPI, PyAutoGUI, OpenPyXL
-- **Real-time**: Socket.io, WebSockets
-- **Deployment**: Docker, Docker Compose, Nginx
+### Prerequisites
 
-## 📦 Prerequisites
+- Node.js 18+
+- npm 9+
+- Microsoft Excel (for testing)
+- Firebase project setup
 
-- **Node.js** >= 18.0.0
-- **npm** >= 9.0.0
-- **Python** >= 3.11
-- **Docker** & **Docker Compose** (for containerized setup)
-- **PostgreSQL** >= 13 (if running without Docker)
+### Installation
 
-## 🚀 Quick Start
-
-### Option 1: Using Docker (Recommended)
-
-1. **Clone and setup**:
+1. **Clone and install dependencies:**
    ```bash
    git clone <repository-url>
    cd Nubia
-   cp .env.example .env
-   ```
-
-2. **Edit environment variables**:
-   ```bash
-   nano .env  # Configure your settings
-   ```
-
-3. **Start all services**:
-   ```bash
-   make setup
-   # Or manually:
-   docker-compose up -d
    npm install
-   npm run db:migrate
    ```
 
-4. **Launch desktop app**:
+2. **Start the backend server:**
    ```bash
-   cd desktop
-   npm run dev
+   npm run dev:backend
    ```
 
-### Option 2: Local Development
-
-1. **Setup database**:
+3. **Start the add-in development server:**
    ```bash
-   # Install PostgreSQL locally
-   createdb nubia_db
+   npm run dev:add-in
    ```
 
-2. **Install dependencies**:
+4. **Sideload the add-in in Excel:**
    ```bash
-   make install
-   # Or manually:
-   npm install
-   cd desktop && npm install
-   cd ../backend && npm install
-   cd ../automation && pip install -r requirements.txt
-   cd ../shared && npm install
+   cd add-in
+   npm run sideload
    ```
 
-3. **Setup environment**:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your local database URL
-   ```
+### Development
 
-4. **Run migrations**:
-   ```bash
-   cd backend
-   npx prisma migrate dev
-   ```
+- **Backend development**: `npm run dev:backend`
+- **Add-in development**: `npm run dev:add-in`
+- **Build all**: `npm run build`
+- **Type checking**: `npm run type-check`
+- **Linting**: `npm run lint`
 
-5. **Start development servers**:
-   ```bash
-   npm run dev
-   ```
+## Features
 
-## 🖥️ Desktop App Usage
+### AI-Powered Chat Interface
+- Natural language interaction with Excel
+- Context-aware responses based on current worksheet
+- Real-time Excel automation
 
-### Floating Bubble Mode
-- **80x80px** bubble stays on top of all windows
-- **Draggable** to any screen position
-- **Hover** to see tooltip
-- **Click** to expand to chat interface
+### Quick Automation
+- Ribbon button for instant data analysis
+- Smart suggestions based on selected data
+- One-click automation execution
 
-### Chat Interface
-- **400x600px** chat window with full functionality
-- **Voice recording** button for speech input
-- **Settings panel** for automation mode selection
-- **Real-time** message history with WebSocket updates
-- **Minimize** button to return to bubble mode
+### Excel Integration
+- Direct manipulation of Excel objects via Office.js
+- Formula generation and insertion
+- Data formatting and analysis
+- Chart and pivot table creation
 
-### Settings Options
-- **Automation Mode**: Choose between Visual and Background
-- **Notifications**: Enable/disable system notifications
-- **Auto-minimize**: Automatically minimize after task completion
+### Authentication & Security
+- Firebase authentication integration
+- Secure API communication
+- Token-based authorization
 
-## 🔧 API Endpoints
+## Backend API Integration
 
-### Backend API (Port 3001)
+The add-in communicates with the existing Nubia backend API:
 
-#### Authentication
-```http
-POST /auth/register    # Register new user
-POST /auth/login       # User login
-GET  /auth/me         # Get user profile
-```
+- **Authentication**: `/api/auth/*`
+- **Chat**: `/api/chat/*`
+- **Automation**: `/api/automation/*`
+- **Subscriptions**: `/api/subscription/*`
 
-#### Chat
-```http
-GET  /chat/history/:userId  # Get chat history
-POST /chat/send            # Send message
-```
+All existing backend functionality remains intact and reusable.
 
-### Automation Service (Port 8000)
+## Deployment
 
-#### Task Management
-```http
-POST /execute              # Execute automation task
-GET  /status/:taskId       # Get task status
-POST /abort/:taskId        # Abort running task
-GET  /tasks               # List all tasks
-```
+### Development
+1. Install Office development certificates: `npm run start` (in add-in folder)
+2. Sideload manifest.xml in Excel
+3. Start backend server
 
-#### WebSocket
-```
-WS /ws                    # Real-time task updates
-```
+### Production
+1. Build add-in: `npm run build`
+2. Deploy to web server (HTTPS required)
+3. Update manifest.xml URLs to production
+4. Submit to Microsoft AppSource or deploy via admin center
 
-## 🤖 Automation Capabilities
+## Configuration
 
-### Visual Mode (PyAutoGUI)
-- **Live screen interaction** with Excel
-- **Progress tracking** with visual feedback
-- **Screenshot capability** for debugging
-- **Mouse and keyboard automation**
-- **Window detection and activation**
-
-### Background Mode (OpenPyXL)
-- **Fast file manipulation** without GUI
-- **Excel file creation and editing**
-- **Formula insertion and calculation**
-- **Chart and pivot table generation**
-- **Data import/export and formatting**
-
-### Supported Operations
-- ✅ Create pivot tables
-- ✅ Insert formulas (SUM, AVERAGE, COUNT, etc.)
-- ✅ Generate charts (Bar, Line, Pie)
-- ✅ Format cells and worksheets
-- ✅ Data manipulation and cleaning
-- ✅ Multi-sheet operations
-- ✅ Custom styling and themes
-
-## 🐳 Docker Deployment
-
-### Production Deployment
+### Environment Variables
 ```bash
-# Build and start production services
-make deploy-build
-make deploy-up
-
-# Or manually:
-docker-compose -f docker-compose.yml --profile production up -d
-```
-
-### Development with Tools
-```bash
-# Start with PgAdmin and Redis Commander
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml --profile tools up -d
-```
-
-### Service Health Checks
-```bash
-make health
-# Or check individual services:
-curl http://localhost:3001/health  # Backend
-curl http://localhost:8000/health  # Automation
-```
-
-## 🔐 Environment Configuration
-
-Key environment variables in `.env`:
-
-```bash
-# Database
-DATABASE_URL="postgresql://nubia:password@localhost:5432/nubia_db"
-
-# JWT
-JWT_SECRET="your-super-secret-jwt-key-change-in-production"
-JWT_EXPIRES_IN="7d"
-
-# Services
+# Backend (.env)
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_PRIVATE_KEY=your-private-key
 BACKEND_PORT=3001
-AUTOMATION_PORT=8000
-DESKTOP_PORT=3000
 
-# CORS
-CORS_ORIGIN="http://localhost:3000"
+# Add-in (manifest.xml)
+- Update SourceLocation URLs for production
+- Update AppDomain entries
 ```
 
-## 📊 Development Commands
+### Manifest Configuration
+Key sections in `manifest.xml`:
+- **SourceLocation**: Points to your hosted add-in
+- **AppDomains**: Allowed domains for the add-in
+- **Permissions**: Excel access permissions
+- **Ribbon buttons**: Custom UI elements
 
-```bash
-make help              # Show all available commands
-make dev              # Start all development servers
-make build            # Build all services
-make test             # Run tests
-make lint             # Run linters
-make docker-up        # Start Docker services
-make migrate          # Run database migrations
-make clean            # Clean build artifacts
-```
+## Key Components
 
-## 🧪 Testing
+### Task Pane (`taskpane.ts`)
+- Main chat interface
+- Authentication handling
+- Excel context integration
+- Real-time communication with backend
 
-```bash
-# Run all tests
-npm run test
+### Commands (`commands.ts`)
+- Ribbon button handlers
+- Quick automation functions
+- Dialog management
 
-# Test specific services
-cd backend && npm test
-cd desktop && npm test
+### API Integration
+- Axios-based HTTP client
+- Token management
+- Error handling
+- Excel action execution
 
-# Type checking
-npm run type-check
-```
+## Firebase Integration
 
-## 📝 Contributing
+Existing Firebase services remain fully functional:
+- **Authentication**: User login/registration
+- **Firestore**: Data storage and chat history
+- **Functions**: Server-side processing
+- **Storage**: File uploads and processing
 
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Push** to the branch (`git push origin feature/amazing-feature`)
-5. **Open** a Pull Request
+## Office.js APIs Used
 
-### Code Standards
-- **TypeScript** for all JavaScript code
-- **ESLint** for code linting
-- **Prettier** for code formatting
-- **Conventional Commits** for commit messages
+- **Excel.run()**: Main Excel context
+- **Worksheet operations**: Data reading/writing
+- **Range manipulation**: Cell selection and formatting
+- **Office.onReady()**: Add-in initialization
+- **UI.displayDialog()**: Modal dialogs
 
-## 🔒 Security Features
+## Support
 
-- **JWT Authentication** with secure token handling
-- **bcrypt Password Hashing** with salt rounds
-- **Input Validation** using express-validator
-- **Rate Limiting** on API endpoints
-- **CORS Configuration** for cross-origin requests
-- **Helmet.js** for security headers
-- **Non-root Docker Users** for container security
-
-## 🚨 Troubleshooting
-
-### Common Issues
-
-**Desktop app won't start**:
-```bash
-# Rebuild Electron
-cd desktop
-rm -rf node_modules
-npm install
-npm run dev
-```
-
-**Database connection failed**:
-```bash
-# Check PostgreSQL status
-docker-compose ps postgres
-# Reset database
-make db-reset
-```
-
-**Automation service errors**:
-```bash
-# Check Python dependencies
-cd automation
-pip install -r requirements.txt
-# Check logs
-docker-compose logs automation
-```
-
-**Excel automation not working**:
-- Ensure Excel is installed and accessible
-- Check display settings for GUI mode
-- Verify file permissions for background mode
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **Electron** - Cross-platform desktop apps
-- **React** - UI component library
-- **FastAPI** - Modern Python web framework
-- **Prisma** - Next-generation ORM
-- **OpenPyXL** - Excel file manipulation
-- **PyAutoGUI** - GUI automation
-
-## 📞 Support
-
-For support and questions:
-- 📧 Email: support@nubia.dev
-- 💬 Discord: [Join our community](https://discord.gg/nubia)
-- 🐛 Issues: [GitHub Issues](https://github.com/nubia/nubia/issues)
+- **Documentation**: Office.js docs + Firebase docs
+- **Development**: Use Excel Online or Desktop for testing
+- **Debugging**: Browser dev tools + Office Add-in debugging
 
 ---
 
-**Made with ❤️ by the Nubia Team**
+**Ready for Excel add-in development!** 🚀

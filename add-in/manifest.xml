@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/officeappversionoverrides"
+           xsi:type="TaskPaneApp">
+
+  <!-- Basic Add-in Information -->
+  <Id>12345678-1234-5678-9012-123456789abc</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Nubia Team</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Nubia - AI Excel Assistant"/>
+  <Description DefaultValue="AI-powered Excel automation and chat assistant"/>
+
+  <!-- Icons (using placeholder URLs) -->
+  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
+
+  <!-- Support and App Domains -->
+  <SupportUrl DefaultValue="https://nubia.ai/support"/>
+  <AppDomains>
+    <AppDomain>https://localhost:3000</AppDomain>
+    <AppDomain>https://nubia.ai</AppDomain>
+  </AppDomains>
+
+  <!-- Host Applications -->
+  <Hosts>
+    <Host Name="Workbook"/>
+  </Hosts>
+
+  <!-- Default Settings -->
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
+  </DefaultSettings>
+
+  <!-- Permissions -->
+  <Permissions>ReadWriteDocument</Permissions>
+
+  <!-- Version Overrides for Ribbon Integration -->
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/officeappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Workbook">
+        <DesktopFormFactor>
+          <!-- Getting Started -->
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.Description"/>
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl"/>
+          </GetStarted>
+
+          <!-- Function File for Commands -->
+          <FunctionFile resid="Commands.Url"/>
+
+          <!-- Ribbon Extensions -->
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="NubiaGroup">
+                <Label resid="NubiaGroup.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16x16"/>
+                  <bt:Image size="32" resid="Icon.32x32"/>
+                  <bt:Image size="80" resid="Icon.80x80"/>
+                </Icon>
+
+                <!-- Open Nubia Taskpane Button -->
+                <Control xsi:type="Button" id="OpenNubiaButton">
+                  <Label resid="OpenNubiaButton.Label"/>
+                  <Supertip>
+                    <Title resid="OpenNubiaButton.Label"/>
+                    <Description resid="OpenNubiaButton.Tooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16x16"/>
+                    <bt:Image size="32" resid="Icon.32x32"/>
+                    <bt:Image size="80" resid="Icon.80x80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>NubiaTaskpane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+
+                <!-- Quick Excel Function Button -->
+                <Control xsi:type="Button" id="QuickAnalysisButton">
+                  <Label resid="QuickAnalysisButton.Label"/>
+                  <Supertip>
+                    <Title resid="QuickAnalysisButton.Label"/>
+                    <Description resid="QuickAnalysisButton.Tooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16x16"/>
+                    <bt:Image size="32" resid="Icon.32x32"/>
+                    <bt:Image size="80" resid="Icon.80x80"/>
+                  </Icon>
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>quickAnalysis</FunctionName>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <!-- Resources -->
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16x16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
+        <bt:Image id="Icon.32x32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+        <bt:Image id="Icon.80x80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://nubia.ai/docs"/>
+        <bt:Url id="Commands.Url" DefaultValue="https://localhost:3000/commands.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="GetStarted.Title" DefaultValue="Get started with Nubia!"/>
+        <bt:String id="NubiaGroup.Label" DefaultValue="Nubia AI"/>
+        <bt:String id="OpenNubiaButton.Label" DefaultValue="Open Nubia"/>
+        <bt:String id="QuickAnalysisButton.Label" DefaultValue="Quick Analysis"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="GetStarted.Description" DefaultValue="Nubia helps you automate Excel with AI assistance."/>
+        <bt:String id="OpenNubiaButton.Tooltip" DefaultValue="Open Nubia AI assistant taskpane"/>
+        <bt:String id="QuickAnalysisButton.Tooltip" DefaultValue="Quick AI analysis of selected data"/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

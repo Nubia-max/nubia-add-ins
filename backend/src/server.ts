@@ -7,19 +7,10 @@ import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import multer from 'multer';
 
-// Import Firebase controllers and services
-import { auth } from './middleware/auth';
-import { firebaseService } from './services/firebase';
-import firebaseAuthController from './controllers/firebaseAuthController';
-import firebaseChatController from './controllers/firebaseChatController';
-import * as subscriptionController from './controllers/subscriptionController';
-import * as automationController from './controllers/automationController';
-
 import { chatRoutes } from './routes/chat';
 import { errorHandler } from './middleware/errorHandler';
 import { setupSocketHandlers } from './utils/socket';
 import { logger } from './utils/logger';
-
 
 dotenv.config();
 
@@ -33,13 +24,6 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.BACKEND_PORT || 3001;
-
-// Extend Express Request type
-declare module 'express-serve-static-core' {
-  interface Request {
-    user?: { id: string; email: string };
-  }
-}
 
 // Rate limiting
 const limiter = rateLimit({
@@ -80,10 +64,10 @@ app.use(cors({
     if (!origin) return callback(null, true);
 
     const allowedOrigins = [
-      'http://localhost:3000',  // Web frontend
+      'http://localhost:3000',  // Add-in dev server
+      'https://localhost:3000', // Add-in dev server (HTTPS)
       'http://localhost:3001',  // Backend itself
-      'http://localhost:3002',  // Alternative frontend port
-      'file://'                 // Electron app
+      'https://nubia.ai'        // Production domain
     ];
 
     // Check if origin starts with any allowed origin
@@ -117,60 +101,16 @@ app.get('/api/health', (req, res) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    database: 'Firebase Firestore'
+    service: 'Nubia Excel Add-in API'
   });
 });
-
-
-// Firebase Auth middleware
-const authMiddleware = auth;
-
-// === FIREBASE AUTH ROUTES ===
-app.get('/api/auth/profile', authMiddleware, firebaseAuthController.getProfile);
-app.put('/api/auth/profile', authMiddleware, firebaseAuthController.updateProfile);
-app.post('/api/auth/initialize-subscription', authMiddleware, firebaseAuthController.initializeSubscription);
-app.get('/api/auth/verify', authMiddleware, firebaseAuthController.verifyAuth);
-
-
-// === FIREBASE SUBSCRIPTION ROUTES ===
-app.get('/api/subscription/current', authMiddleware, subscriptionController.getCurrentSubscription);
-app.get('/api/subscription/tiers', subscriptionController.getSubscriptionTiers);
-app.post('/api/subscription/create', authMiddleware, subscriptionController.createSubscription);
-app.put('/api/subscription/update', authMiddleware, subscriptionController.updateSubscription);
-app.post('/api/subscription/cancel', authMiddleware, subscriptionController.cancelSubscription);
-app.post('/api/subscription/reset-usage', authMiddleware, subscriptionController.resetUsage);
-
-
-
-// === FIREBASE AUTOMATION ROUTES ===
-app.post('/api/automation/process', authMiddleware, automationController.processAutomation);
-app.get('/api/automation/history', authMiddleware, automationController.getAutomationHistory);
-app.get('/api/automation/analytics', authMiddleware, automationController.getUsageAnalytics);
-app.post('/api/automation/templates', authMiddleware, automationController.saveAutomationTemplate);
-app.get('/api/automation/templates', authMiddleware, automationController.getAutomationTemplates);
-app.post('/api/automation/templates/:templateId/use', authMiddleware, automationController.useAutomationTemplate);
-
-// === FIREBASE CHAT ROUTES ===
-app.post('/api/chat', authMiddleware, firebaseChatController.handleUniversalChat);
-app.post('/api/chat/with-files', upload.array('files', 5), authMiddleware, firebaseChatController.handleUniversalChatWithFiles);
-app.post('/api/chat/clear', authMiddleware, firebaseChatController.clearConversation);
-app.get('/api/chat/history', authMiddleware, firebaseChatController.getChatHistory);
-app.delete('/api/chat/sessions/:sessionId', authMiddleware, firebaseChatController.deleteChatSession);
-app.get('/api/chat/context', authMiddleware, firebaseChatController.getDocumentContext);
-
-
-
-// Test endpoint for Nubia verification
-app.post('/api/test/nubia', authMiddleware, firebaseChatController.testNubia);
 
 // Test route
 app.get('/api/test', (req, res) => {
   res.json({
-    message: 'Firebase-powered NUBIA API is working!',
+    message: 'Nubia Excel Add-in API is working!',
     timestamp: new Date().toISOString(),
-    auth: 'Firebase Auth',
-    database: 'Firebase Firestore',
-    storage: 'Firebase Storage'
+    service: 'Excel Add-in Backend'
   });
 });
 
@@ -211,11 +151,9 @@ server.keepAliveTimeout = 61000; // 61 seconds (must be > proxy timeout)
 server.headersTimeout = 62000; // 62 seconds (must be > keepAliveTimeout)
 
 server.listen(PORT, () => {
-  logger.info(`🚀 Firebase-powered NUBIA Server running on http://localhost:${PORT}`);
+  logger.info(`🚀 Nubia Excel Add-in Server running on http://localhost:${PORT}`);
   logger.info(`📡 API available at http://localhost:${PORT}/api`);
-  logger.info(`🔥 Database: Firebase Firestore`);
-  logger.info(`🔐 Auth: Firebase Auth`);
-  logger.info(`📦 Storage: Firebase Storage`);
+  logger.info(`📊 Service: Excel Add-in Backend`);
   logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   logger.info(`⏱️ Server timeout: 5 minutes for AI processing`);
 });

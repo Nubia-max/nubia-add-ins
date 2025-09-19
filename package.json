@@ -1,31 +1,22 @@
 {
-  "name": "nubia-monorepo",
+  "name": "nubia-office-addin",
   "version": "1.0.0",
-  "description": "Nubia - Accounting Excel Automation Chatbot",
+  "description": "Nubia - Excel Add-in for AI-Powered Automation",
   "private": true,
   "workspaces": [
-    "desktop",
+    "add-in",
     "backend",
     "shared"
   ],
   "scripts": {
-    "dev": "./start-dev.sh",
+    "dev": "npm run dev --workspace=backend",
     "backend": "BACKEND_PORT=3001 npx ts-node --project backend/tsconfig.json backend/src/server.ts",
-    "backend:ts": "npm run dev --workspace=backend",
-    "frontend": "cd desktop && npm start",
-    "test:auth": "node test-auth-flow.js",
-    "dev:full": "concurrently \"npm run dev:backend\" \"npm run frontend\"",
-    "dev:desktop": "npm run dev --workspace=desktop",
     "dev:backend": "npm run dev --workspace=backend",
-    "dev:automation": "cd automation && python3 main.py",
+    "dev:add-in": "npm run dev --workspace=add-in",
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces",
     "type-check": "npm run type-check --workspaces",
-    "test": "npm run test --workspaces",
-    "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down",
-    "setup": "npm install && npm run docker:up && sleep 10 && npm run db:migrate",
-    "db:migrate": "npm run db:migrate --workspace=backend"
+    "test": "npm run test --workspaces"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

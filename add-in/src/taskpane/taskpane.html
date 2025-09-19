@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nubia - AI Excel Assistant</title>
+
+    <!-- Office JavaScript API -->
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8f9fa;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .header p {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            min-height: 0;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+            border: 1px solid #e9ecef;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .message {
+            margin-bottom: 16px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .message-content {
+            padding: 12px 16px;
+            border-radius: 12px;
+            max-width: 85%;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            align-items: flex-end;
+        }
+
+        .message.user .message-content {
+            background: #007acc;
+            color: white;
+        }
+
+        .message.assistant {
+            align-items: flex-start;
+        }
+
+        .message.assistant .message-content {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            color: #333;
+        }
+
+        .message-sender {
+            font-size: 11px;
+            color: #6c757d;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+
+        .input-container {
+            display: flex;
+            gap: 8px;
+            background: white;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .chat-input {
+            flex: 1;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .chat-input:focus {
+            border-color: #007acc;
+        }
+
+        .send-button {
+            background: #007acc;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .send-button:hover:not(:disabled) {
+            background: #005a9e;
+        }
+
+        .send-button:disabled {
+            background: #adb5bd;
+            cursor: not-allowed;
+        }
+
+        .loading-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #6c757d;
+            font-style: italic;
+        }
+
+        .loading-dots {
+            display: inline-flex;
+            gap: 2px;
+        }
+
+        .loading-dots span {
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: #6c757d;
+            animation: loading 1.4s infinite ease-in-out;
+        }
+
+        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes loading {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .status-bar {
+            background: #e9ecef;
+            padding: 8px 16px;
+            font-size: 12px;
+            color: #6c757d;
+            text-align: center;
+        }
+
+        .status-connected {
+            color: #28a745;
+        }
+
+        .status-error {
+            color: #dc3545;
+        }
+
+        /* System message styles */
+        .system-message {
+            opacity: 0.9;
+        }
+
+        .system-message .message-sender {
+            color: #6c757d;
+            font-size: 10px;
+        }
+
+        .system-message.success .message-content {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            font-size: 13px;
+        }
+
+        .system-message.error .message-content {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            font-size: 13px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>🤖 Nubia AI Assistant</h1>
+        <p>Your AI-powered Excel automation companion</p>
+    </div>
+
+    <div class="chat-container">
+        <div id="chatMessages" class="chat-messages">
+            <div class="message assistant">
+                <div class="message-sender">Nubia</div>
+                <div class="message-content">
+                    Hello! I'm your AI Excel assistant. I can help you with formulas, data analysis, charts, and automation. What would you like me to help you with today?
+                </div>
+            </div>
+        </div>
+
+        <div class="input-container">
+            <input
+                type="text"
+                id="chatInput"
+                class="chat-input"
+                placeholder="Ask me anything about your Excel data..."
+                maxlength="500"
+            />
+            <button id="sendButton" class="send-button">Send</button>
+        </div>
+    </div>
+
+    <div id="statusBar" class="status-bar">
+        <span id="statusText">Ready</span>
+    </div>
+
+    <script src="taskpane.js"></script>
+</body>
+</html>
