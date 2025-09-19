@@ -21,6 +21,7 @@ interface ChatViewProps {
   usageStatus?: any;
   onShowSubscription?: () => void;
   onShowAuth?: () => void;
+  onRefreshSubscription?: () => Promise<any>;
 }
 
 const ChatView: React.FC<ChatViewProps> = ({
@@ -29,7 +30,8 @@ const ChatView: React.FC<ChatViewProps> = ({
   canUseAutomation,
   usageStatus,
   onShowSubscription,
-  onShowAuth
+  onShowAuth,
+  onRefreshSubscription
 }) => {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -142,7 +144,9 @@ const ChatView: React.FC<ChatViewProps> = ({
     // Send everything to chat - GPT decides what to do
     try {
       console.log('💬 Sending message to GPT:', command);
-      console.log('📎 Files to send:', filesToSend.length);
+      if (filesToSend.length > 0) {
+        console.log(`📎 Uploading ${filesToSend.length} file(s):`, filesToSend.map(f => `${f.file.name} (${(f.file.size / 1024).toFixed(1)}KB)`));
+      }
       
       if (!cloudApi.isAuthenticated()) {
         console.error('❌ User not authenticated!');
@@ -176,7 +180,7 @@ const ChatView: React.FC<ChatViewProps> = ({
       // If Excel data exists, create file in background and show success message
       if (result.type === 'excel' && result.excelData) {
         console.log('🎯 Excel data detected - creating file:', result.excelData);
-        
+
         // Show Excel success message (file was already created by backend)
         const successMessage: Message = {
           id: `system_${Date.now() + 2}`,
@@ -185,8 +189,18 @@ const ChatView: React.FC<ChatViewProps> = ({
           timestamp: new Date(),
           automationStatus: 'completed'
         };
-        
+
         setMessages(prev => [...prev, successMessage]);
+
+        // Refresh subscription data to update usage count
+        if (onRefreshSubscription) {
+          try {
+            await onRefreshSubscription();
+            console.log('✅ Subscription data refreshed after automation');
+          } catch (error) {
+            console.error('❌ Failed to refresh subscription:', error);
+          }
+        }
       }
       
       setIsProcessing(false);
@@ -489,7 +503,26 @@ const ChatView: React.FC<ChatViewProps> = ({
                 {!canUseAutomation && (
                   <div className="upgrade-notice">
                     <p>You've used all {usageStatus?.limit || 10} free automations.</p>
-                    <button className="upgrade-btn" onClick={() => { setShowSettings(false); onShowSubscription?.(); }}>Upgrade to continue</button>
+                    <div className="upgrade-actions">
+                      <button className="upgrade-btn" onClick={() => { setShowSettings(false); onShowSubscription?.(); }}>
+                        Upgrade to continue
+                      </button>
+                      <button
+                        className="refresh-btn"
+                        onClick={async () => {
+                          if (onRefreshSubscription) {
+                            try {
+                              await onRefreshSubscription();
+                              console.log('✅ Subscription manually refreshed');
+                            } catch (error) {
+                              console.error('❌ Manual refresh failed:', error);
+                            }
+                          }
+                        }}
+                      >
+                        Refresh Usage
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

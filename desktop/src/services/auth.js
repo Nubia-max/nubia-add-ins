@@ -47,10 +47,10 @@ export const getCurrentUser = () => {
 };
 
 // Get ID token for API requests
-export const getIdToken = async () => {
+export const getIdToken = async (forceRefresh = false) => {
   const user = getCurrentUser();
   if (user) {
-    return await user.getIdToken();
+    return await user.getIdToken(forceRefresh);
   }
   return null;
 };

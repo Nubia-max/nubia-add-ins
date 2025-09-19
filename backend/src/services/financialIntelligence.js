@@ -17,8 +17,8 @@ class FinancialIntelligenceService {
     this.client = new OpenAI({
       apiKey: process.env.DEEPSEEK_API_KEY,
       baseURL: 'https://api.deepseek.com',
-      timeout: 300000, // 5 minutes - allow proper thinking time
-      maxRetries: 1
+      timeout: 600000, // 10 minutes - match race condition timeout
+      maxRetries: 2
     });
 
     // Initialize smart context manager
@@ -49,7 +49,7 @@ class FinancialIntelligenceService {
         console.log('📤 User message first 200 chars:', message.substring(0, 200));
 
         console.log('🚀 Sending request to DeepSeek...');
-        console.log('⏳ Allowing up to 6 minutes for deep reasoning...');
+        console.log('⏳ Allowing up to 10 minutes for deep reasoning...');
 
         // Add progress logging every 30 seconds
         const progressInterval = setInterval(() => {
@@ -80,7 +80,7 @@ class FinancialIntelligenceService {
               // function_call: 'auto'
             }),
             new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('DeepSeek request timed out after 6 minutes - may indicate API or network issue')), 360000)
+              setTimeout(() => reject(new Error('DeepSeek request timed out after 10 minutes - may indicate API or network issue')), 600000)
             )
           ]);
         } finally {
@@ -124,7 +124,8 @@ class FinancialIntelligenceService {
         console.log('📄 FORMAT CHECK:', { hasChatResponse, hasExcelData });
 
         // Extract sections using the proven parser
-        const chatResponse = extractTaggedBlock(raw, 'CHAT_RESPONSE') || 
+        const chatResponse = extractTaggedBlock(raw, 'CHAT_RESPONSE') ||
+                            raw || // Use the full response if no tags found
                             'I\'ve processed your request.';
         const excelDataBlock = extractTaggedBlock(raw, 'EXCEL_DATA');
         const structure = safeParseJSON(excelDataBlock);
@@ -156,7 +157,7 @@ class FinancialIntelligenceService {
 
         // Validate structure if it exists
         const validation = validateExcelStructure(structure);
-        if (!validation.valid) {
+        if (!validation.success) {
           console.log('⚠️ Validation failed, attempting retry with stricter prompt');
           return await this.retryWithValidation(message, structure, validation.error);
         }
@@ -209,7 +210,12 @@ class FinancialIntelligenceService {
         attempt++;
         console.error(`❌ Financial Intelligence Error (Attempt ${attempt}):`, error.message);
         
-        if (error.name === 'APIConnectionTimeoutError' || error.code === 'ECONNRESET' || error.message?.includes('timeout')) {
+        if (error.name === 'APIConnectionTimeoutError' ||
+            error.code === 'ECONNRESET' ||
+            error.code === 'ETIMEDOUT' ||
+            error.message?.includes('timeout') ||
+            error.message?.includes('terminated') ||
+            error.cause?.code === 'ETIMEDOUT') {
           if (attempt < maxRetries) {
             const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
             console.log(`⏳ Retrying in ${delay}ms...`);
@@ -255,7 +261,8 @@ Please correct the structure and ensure all required fields are present.`;
       });
 
       const raw = response.choices[0].message.content || '';
-      const chatResponse = extractTaggedBlock(raw, 'CHAT_RESPONSE') || 
+      const chatResponse = extractTaggedBlock(raw, 'CHAT_RESPONSE') ||
+                          raw || // Use the full response if no tags found
                           'I\'ve processed your request with corrections.';
       const excelDataBlock = extractTaggedBlock(raw, 'EXCEL_DATA');
       const correctedStructure = safeParseJSON(excelDataBlock);
@@ -332,6 +339,7 @@ DO NOT deviate from this format. Do not add any text before [CHAT_RESPONSE] or a
 
       const raw = response.choices[0].message.content || '';
       const chatResponse = extractTaggedBlock(raw, 'CHAT_RESPONSE') ||
+                          raw || // Use the full response if no tags found
                           'I\'ve processed your request with format corrections.';
       const excelDataBlock = extractTaggedBlock(raw, 'EXCEL_DATA');
       const structure = safeParseJSON(excelDataBlock);
@@ -477,7 +485,7 @@ Return ONLY the enhanced JSON structure, no explanation needed.`;
       // Validate structure if it exists
       if (structure) {
         const validation = validateExcelStructure(structure);
-        if (!validation.valid) {
+        if (!validation.success) {
           console.log('⚠️ Structure validation failed, falling back to chat response');
           return {
             success: true,

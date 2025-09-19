@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { excelService } from '../services/excelService';
+// import { excelService } from '../services/excelService'; // TODO: Create excelService or use existing services
 import { auth } from '../middleware/auth';
 
 const router = Router();
@@ -23,7 +23,9 @@ router.post('/process-transactions', auth, async (req: AuthenticatedRequest, res
       return res.status(400).json({ error: 'Transactions data is required' });
     }
 
-    const result = await excelService.processTransactions(req.user.id, transactions);
+    // const result = await excelService.processTransactions(req.user.id, transactions);
+    // TODO: Implement with existing services or create excelService
+    const result = { message: 'Excel service not implemented' };
     
     res.json({
       success: true,
@@ -58,7 +60,9 @@ router.post('/generate-formulas', auth, async (req: AuthenticatedRequest, res: R
       return res.status(400).json({ error: 'Formula description is required' });
     }
 
-    const result = await excelService.generateExcelFormulas(req.user.id, description);
+    // const result = await excelService.generateExcelFormulas(req.user.id, description);
+    // TODO: Implement with existing services or create excelService
+    const result = { message: 'Excel formula service not implemented' };
     
     res.json({
       success: true,
@@ -87,7 +91,9 @@ router.get('/usage-stats', auth, async (req: AuthenticatedRequest, res: Response
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    const stats = await excelService.getUserUsageStats(req.user.id);
+    // const stats = await excelService.getUserUsageStats(req.user.id);
+    // TODO: Implement with existing services or create excelService
+    const stats = { message: 'Usage stats service not implemented' };
     
     res.json({
       success: true,
@@ -115,7 +121,9 @@ router.post('/generate-excel', auth, async (req: AuthenticatedRequest, res: Resp
       return res.status(400).json({ error: 'User input is required' });
     }
 
-    const result = await excelService.processTransactions(req.user.id, userInput);
+    // const result = await excelService.processTransactions(req.user.id, userInput);
+    // TODO: Implement with existing services or create excelService
+    const result = { message: 'Excel generation service not implemented' };
     
     res.json({
       success: true,

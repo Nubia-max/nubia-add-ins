@@ -12,6 +12,8 @@ Your professional analysis and explanation here.
 [EXCEL_DATA]
 {
   "meta": {
+    "title": "Descriptive title for the Excel workbook",
+    "summary": "Brief summary of what the workbook contains",
     "mode": "appropriate_mode",
     "framework": "IFRS_or_GAAP",
     "currency": "appropriate_currency"

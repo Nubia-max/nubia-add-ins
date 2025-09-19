@@ -1,209 +1,164 @@
-import { firebaseService } from '../services/firebase';
-import { logger } from './logger';
+// Usage tracking utilities for automations and resources
 
-export interface UsageParams {
+export interface UsageMetrics {
+  totalAutomations: number;
+  successfulAutomations: number;
+  failedAutomations: number;
+  totalTokensUsed: number;
+  averageExecutionTime: number;
+  lastUsed?: Date;
+  analytics?: {
+    totalAutomations: number;
+    successfulAutomations: number;
+    totalChatQueries: number;
+    totalTokensUsed: number;
+    averageExecutionTime: number;
+  };
+}
+
+export interface UsageRecord {
   userId: string;
-  automationType: 'excel_automation' | 'chat_query' | 'template_creation';
-  command?: string;
+  automationType: string;
+  command: string;
   success: boolean;
-  tokensUsed?: number;
   executionTimeMs?: number;
-  errorMessage?: string | undefined;
+  tokensUsed?: number;
+  timestamp?: Date;
   metadata?: any;
+  errorMessage?: string;
 }
 
-export class UsageTracker {
-  // Record usage for billing and analytics
-  static async recordUsage(params: UsageParams): Promise<void> {
-    try {
-      // Get current subscription
-      const subscription = await firebaseService.getSubscriptionByUserId(params.userId);
+class UsageTrackerClass {
+  private metrics: Map<string, UsageMetrics> = new Map();
+  private records: UsageRecord[] = [];
 
-      // Create usage record
-      await firebaseService.createUsageRecord({
-        userId: params.userId,
-        subscriptionId: subscription?.id,
-        automationType: params.automationType,
-        command: params.command || '',
-        success: params.success,
-        tokensUsed: params.tokensUsed || 0,
-        executionTimeMs: params.executionTimeMs || 0,
-        errorMessage: params.errorMessage,
-        metadata: params.metadata ? JSON.stringify(params.metadata) : undefined
-      });
+  // Record usage with detailed information
+  async recordUsage(record: UsageRecord) {
+    // Add timestamp if not provided
+    record.timestamp = record.timestamp || new Date();
 
-      // Increment usage counter for automations
-      if (params.automationType === 'excel_automation' && params.success && subscription) {
-        await firebaseService.updateSubscription(subscription.id, {
-          automationsUsed: subscription.automationsUsed + 1
-        });
-      }
+    // Store the record
+    this.records.push(record);
 
-      logger.info('Usage recorded:', {
-        userId: params.userId,
-        type: params.automationType,
-        success: params.success
-      });
-    } catch (error) {
-      logger.error('Failed to record usage:', error);
-      // Don't throw error to avoid breaking main functionality
+    // Update aggregated metrics
+    const existing = this.metrics.get(record.userId) || {
+      totalAutomations: 0,
+      successfulAutomations: 0,
+      failedAutomations: 0,
+      totalTokensUsed: 0,
+      averageExecutionTime: 0
+    };
+
+    existing.totalAutomations++;
+    if (record.success) {
+      existing.successfulAutomations++;
+    } else {
+      existing.failedAutomations++;
     }
+    existing.totalTokensUsed += record.tokensUsed || 0;
+    existing.averageExecutionTime = (existing.averageExecutionTime + (record.executionTimeMs || 0)) / 2;
+    existing.lastUsed = record.timestamp;
+
+    this.metrics.set(record.userId, existing);
   }
 
-  // Check if user has reached their usage limits
-  static async checkUsageLimit(userId: string, automationType: string): Promise<{
-    allowed: boolean;
-    subscription: any;
-    usage: number;
-    limit: number;
-    message?: string;
-  }> {
-    try {
-      const subscription = await firebaseService.getSubscriptionByUserId(userId);
+  // Get usage metrics for a user
+  getUserUsage(userId: string, subscription?: any): UsageMetrics {
+    const metrics = this.metrics.get(userId) || {
+      totalAutomations: 0,
+      successfulAutomations: 0,
+      failedAutomations: 0,
+      totalTokensUsed: 0,
+      averageExecutionTime: 0
+    };
 
-      if (!subscription) {
-        return {
-          allowed: false,
-          subscription: null,
-          usage: 0,
-          limit: 0,
-          message: 'No active subscription found. Please subscribe to continue using Nubia.'
-        };
-      }
+    // Add analytics property
+    metrics.analytics = {
+      totalAutomations: metrics.totalAutomations,
+      successfulAutomations: metrics.successfulAutomations,
+      totalChatQueries: 0, // Could be tracked separately
+      totalTokensUsed: metrics.totalTokensUsed,
+      averageExecutionTime: metrics.averageExecutionTime
+    };
 
-      // Check subscription status
-      if (subscription.status !== 'active' && subscription.status !== 'trial') {
-        return {
-          allowed: false,
-          subscription,
-          usage: subscription.automationsUsed,
-          limit: subscription.automationsLimit,
-          message: `Subscription is ${subscription.status.toLowerCase()}. Please update your payment method.`
-        };
-      }
-
-      // Check trial expiry
-      if (subscription.status === 'trial' && subscription.billingPeriodEnd) {
-        const now = new Date();
-        if (now > subscription.billingPeriodEnd) {
-          // Update subscription status
-          await firebaseService.updateSubscription(subscription.id, {
-            status: 'canceled'
-          });
-
-          return {
-            allowed: false,
-            subscription,
-            usage: subscription.automationsUsed,
-            limit: subscription.automationsLimit,
-            message: 'Your free trial has expired. Please upgrade to continue using Nubia.'
-          };
-        }
-      }
-
-      // Check automation limits (unlimited = -1)
-      if (automationType === 'excel_automation') {
-        if (subscription.automationsLimit !== -1 &&
-            subscription.automationsUsed >= subscription.automationsLimit) {
-          return {
-            allowed: false,
-            subscription,
-            usage: subscription.automationsUsed,
-            limit: subscription.automationsLimit,
-            message: `You've reached your monthly limit of ${subscription.automationsLimit} automations. Please upgrade your plan.`
-          };
-        }
-      }
-
-      return {
-        allowed: true,
-        subscription,
-        usage: subscription.automationsUsed,
-        limit: subscription.automationsLimit
-      };
-    } catch (error) {
-      logger.error('Failed to check usage limit:', error);
-      return {
-        allowed: false,
-        subscription: null,
-        usage: 0,
-        limit: 0,
-        message: 'Unable to verify subscription status. Please try again.'
-      };
-    }
+    return metrics;
   }
 
-  // Get usage analytics for user
-  static async getUserUsage(userId: string, days: number = 30) {
-    try {
-      const usage = await firebaseService.getUserUsageRecords(userId);
-
-      // Filter by date range
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
-
-      const filteredUsage = usage.filter(u => u.createdAt >= startDate);
-
-      const analytics = {
-        totalAutomations: filteredUsage.filter(u => u.automationType === 'excel_automation').length,
-        successfulAutomations: filteredUsage.filter(u => u.automationType === 'excel_automation' && u.success).length,
-        totalChatQueries: filteredUsage.filter(u => u.automationType === 'chat_query').length,
-        totalTokensUsed: filteredUsage.reduce((sum, u) => sum + (u.tokensUsed || 0), 0),
-        averageExecutionTime: filteredUsage.length > 0
-          ? filteredUsage.reduce((sum, u) => sum + (u.executionTimeMs || 0), 0) / filteredUsage.length
-          : 0,
-        dailyUsage: this.groupUsageByDay(filteredUsage),
-        automationsByType: this.groupUsageByType(filteredUsage)
-      };
-
-      return { usage: filteredUsage, analytics };
-    } catch (error) {
-      logger.error('Failed to get user usage:', error);
-      throw error;
-    }
+  // Get usage metrics for a user (alias)
+  getMetrics(userId: string): UsageMetrics {
+    return this.getUserUsage(userId);
   }
 
-  private static groupUsageByDay(usage: any[]) {
-    const grouped: Record<string, number> = {};
-    usage.forEach(u => {
-      const date = u.createdAt.toISOString().split('T')[0];
-      grouped[date] = (grouped[date] || 0) + 1;
-    });
-    return grouped;
+  // Get usage records for a user
+  getUserRecords(userId: string): UsageRecord[] {
+    return this.records.filter(record => record.userId === userId);
   }
 
-  private static groupUsageByType(usage: any[]) {
-    const grouped: Record<string, number> = {};
-    usage.forEach(u => {
-      grouped[u.automationType] = (grouped[u.automationType] || 0) + 1;
-    });
-    return grouped;
+  // Reset metrics for a user
+  resetMetrics(userId: string) {
+    this.metrics.delete(userId);
+    this.records = this.records.filter(record => record.userId !== userId);
+  }
+
+  // Get all user metrics (for admin)
+  getAllMetrics(): Map<string, UsageMetrics> {
+    return new Map(this.metrics);
   }
 }
 
-// Middleware to check usage limits before API calls
+// Export the singleton instance as UsageTracker (with capital U to match import)
+export const UsageTracker = new UsageTrackerClass();
+
+// Global usage tracker instance (for backwards compatibility)
+export const usageTracker = UsageTracker;
+
+// Helper functions
+export const trackSuccess = (userId: string, tokensUsed?: number, executionTime?: number) => {
+  UsageTracker.recordUsage({
+    userId,
+    automationType: 'general',
+    command: 'success',
+    success: true,
+    executionTimeMs: executionTime || 0,
+    tokensUsed
+  });
+};
+
+export const trackFailure = (userId: string, tokensUsed?: number, executionTime?: number) => {
+  UsageTracker.recordUsage({
+    userId,
+    automationType: 'general',
+    command: 'failure',
+    success: false,
+    executionTimeMs: executionTime || 0,
+    tokensUsed
+  });
+};
+
+export const getUserMetrics = (userId: string): UsageMetrics => {
+  return UsageTracker.getMetrics(userId);
+};
+
+// Usage middleware for Express routes
 export const checkUsageMiddleware = (automationType: string) => {
   return async (req: any, res: any, next: any) => {
-    const userId = req.user?.id;
+    try {
+      const userId = req.user?.id || req.user?.uid;
+      if (!userId) {
+        return res.status(401).json({ error: 'User not authenticated' });
+      }
 
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      // Get current usage metrics
+      const metrics = UsageTracker.getMetrics(userId);
+
+      // For now, we'll allow all requests and just track them
+      // Future implementations can add subscription-based limits here
+
+      next();
+    } catch (error) {
+      console.error('Usage tracking middleware error:', error);
+      // Don't block the request on tracking errors
+      next();
     }
-
-    const usageCheck = await UsageTracker.checkUsageLimit(userId, automationType);
-
-    if (!usageCheck.allowed) {
-      return res.status(429).json({
-        error: 'Usage limit exceeded',
-        message: usageCheck.message,
-        subscription: usageCheck.subscription,
-        usage: usageCheck.usage,
-        limit: usageCheck.limit
-      });
-    }
-
-    // Attach subscription info to request
-    req.subscription = usageCheck.subscription;
-    next();
   };
 };

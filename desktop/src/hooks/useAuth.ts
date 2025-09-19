@@ -126,12 +126,16 @@ export const useAuth = () => {
 
   const refreshSubscription = async () => {
     if (!user) return;
-    
+
     try {
+      console.log('🔄 Refreshing subscription data...');
       const subscriptionData = await cloudApi.getSubscription();
+      console.log('📊 Fresh subscription data:', subscriptionData);
       setSubscription(subscriptionData);
+      return subscriptionData;
     } catch (error) {
       console.error('Failed to refresh subscription:', error);
+      throw error;
     }
   };
 

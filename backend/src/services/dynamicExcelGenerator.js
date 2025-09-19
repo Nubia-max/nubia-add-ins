@@ -2029,30 +2029,292 @@ applyCellStyle(worksheet, cmd) {
     });
   }
 
-  // Mechanical file opening - no changes needed
+  // Smart spreadsheet detection - try Excel first, then any available spreadsheet app
   async openExcelFile(filepath) {
     console.log('🚀 Opening Excel file:', filepath);
-    
+
     return new Promise((resolve) => {
-      let command;
-      
       if (process.platform === 'darwin') {
-        // Try Microsoft Excel first, then Numbers, then default app
-        command = `open -a "Microsoft Excel" "${filepath}" 2>/dev/null || open -a "Numbers" "${filepath}" 2>/dev/null || open "${filepath}"`;
+        console.log('💥 Smart spreadsheet detection for macOS...');
+        this.openWithBestSpreadsheetApp(filepath, resolve);
       } else if (process.platform === 'win32') {
-        command = `start "" "${filepath}"`;
+        console.log('💥 Smart spreadsheet detection for Windows...');
+        this.openWithBestSpreadsheetAppWindows(filepath, resolve);
       } else {
-        command = `xdg-open "${filepath}"`;
+        console.log('💥 Smart spreadsheet detection for Linux...');
+        this.openWithBestSpreadsheetAppLinux(filepath, resolve);
       }
-      
-      exec(command, (error) => {
+    });
+  }
+
+  // macOS: Try apps in order of preference using direct AppleScript
+  openWithBestSpreadsheetApp(filepath, resolve) {
+    const spreadsheetApps = [
+      {
+        name: 'Microsoft Excel',
+        command: `/tmp/open_excel.sh "${filepath}"`
+      },
+      {
+        name: 'Numbers',
+        command: `osascript -e 'tell application "Numbers" to open POSIX file "${filepath}"' -e 'tell application "Numbers" to activate'`
+      },
+      {
+        name: 'LibreOffice',
+        command: `open -a "LibreOffice" "${filepath}"`
+      },
+      {
+        name: 'Default App',
+        command: `open "${filepath}"`
+      }
+    ];
+
+    let appIndex = 0;
+    const tryNextApp = () => {
+      if (appIndex >= spreadsheetApps.length) {
+        console.error('❌ No spreadsheet applications found on this system');
+        resolve({ opened: false, error: 'No spreadsheet applications available' });
+        return;
+      }
+
+      const app = spreadsheetApps[appIndex];
+      console.log(`📂 Trying ${app.name}...`);
+
+      exec(app.command, (error) => {
         if (error) {
-          console.warn('⚠️ Could not auto-open Excel:', error.message);
-          resolve({ opened: false, error: error.message });
+          console.warn(`⚠️ ${app.name} failed: ${error.message}`);
+          appIndex++;
+          setTimeout(tryNextApp, 500); // Small delay between attempts
         } else {
-          console.log('✅ Excel opened successfully');
-          resolve({ opened: true });
+          console.log(`✅ ${app.name} opened successfully!`);
+
+          // If it's Excel, ensure visibility
+          if (app.name === 'Microsoft Excel') {
+            this.ensureExcelVisible(resolve);
+          } else if (app.name === 'Numbers') {
+            this.ensureNumbersVisible(resolve);
+          } else {
+            setTimeout(() => {
+              resolve({ opened: true, app: app.name });
+            }, 2000);
+          }
         }
+      });
+    };
+
+    tryNextApp();
+  }
+
+  // Windows: Try apps in order of preference
+  openWithBestSpreadsheetAppWindows(filepath, resolve) {
+    const spreadsheetApps = [
+      { name: 'Microsoft Excel', command: `start excel.exe "${filepath}"` },
+      { name: 'LibreOffice Calc', command: `start libreoffice --calc "${filepath}"` },
+      { name: 'Default App', command: `start "" "${filepath}"` },
+    ];
+
+    let appIndex = 0;
+    const tryNextApp = () => {
+      if (appIndex >= spreadsheetApps.length) {
+        console.error('❌ No spreadsheet applications found on this system');
+        resolve({ opened: false, error: 'No spreadsheet applications available' });
+        return;
+      }
+
+      const app = spreadsheetApps[appIndex];
+      console.log(`📂 Trying ${app.name}...`);
+
+      exec(app.command, (error) => {
+        if (error) {
+          console.warn(`⚠️ ${app.name} failed: ${error.message}`);
+          appIndex++;
+          setTimeout(tryNextApp, 500);
+        } else {
+          console.log(`✅ ${app.name} opened successfully!`);
+          resolve({ opened: true, app: app.name });
+        }
+      });
+    };
+
+    tryNextApp();
+  }
+
+  // Linux: Try apps in order of preference
+  openWithBestSpreadsheetAppLinux(filepath, resolve) {
+    const spreadsheetApps = [
+      { name: 'LibreOffice Calc', command: `libreoffice --calc "${filepath}"` },
+      { name: 'OnlyOffice', command: `onlyoffice-desktopeditors "${filepath}"` },
+      { name: 'Gnumeric', command: `gnumeric "${filepath}"` },
+      { name: 'Default App', command: `xdg-open "${filepath}"` },
+    ];
+
+    let appIndex = 0;
+    const tryNextApp = () => {
+      if (appIndex >= spreadsheetApps.length) {
+        console.error('❌ No spreadsheet applications found on this system');
+        resolve({ opened: false, error: 'No spreadsheet applications available' });
+        return;
+      }
+
+      const app = spreadsheetApps[appIndex];
+      console.log(`📂 Trying ${app.name}...`);
+
+      exec(app.command, (error) => {
+        if (error) {
+          console.warn(`⚠️ ${app.name} failed: ${error.message}`);
+          appIndex++;
+          setTimeout(tryNextApp, 500);
+        } else {
+          console.log(`✅ ${app.name} opened successfully!`);
+          resolve({ opened: true, app: app.name });
+        }
+      });
+    };
+
+    tryNextApp();
+  }
+
+  // Ensure Numbers is visible (for macOS fallback)
+  ensureNumbersVisible(resolve) {
+    setTimeout(() => {
+      console.log('📂 Bringing Numbers to foreground...');
+      exec('osascript -e \'tell application "Numbers" to activate\'', (error) => {
+        if (error) {
+          console.warn('⚠️ Numbers activation failed:', error.message);
+        }
+        setTimeout(() => {
+          console.log('✅ Numbers should now be visible');
+          resolve({ opened: true, app: 'Numbers' });
+        }, 1500);
+      });
+    }, 2000);
+  }
+
+  // Simple method to ensure Excel is visible
+  ensureExcelVisible(resolve) {
+    setTimeout(() => {
+      console.log('📂 Step 3: Bringing Excel to foreground...');
+
+      // Simple activation
+      exec('osascript -e \'tell application "Microsoft Excel" to activate\'', (error) => {
+        if (error) {
+          console.warn('⚠️ Excel activation failed:', error.message);
+        }
+
+        // Wait a moment for activation
+        setTimeout(() => {
+          console.log('✅ Excel should now be visible');
+          resolve({ opened: true, app: 'Microsoft Excel', method: 'simple' });
+        }, 1500);
+      });
+    }, 2000); // Give the file time to open
+  }
+
+  // Method to force workbook visibility
+  forceWorkbookVisible(filepath, resolve) {
+    console.log('📂 Step 3: Forcing workbook to be visible...');
+
+    setTimeout(() => {
+      // Multi-step approach to ensure the workbook is visible
+      const visibilityCommands = [
+        // Activate Excel
+        'osascript -e \'tell application "Microsoft Excel" to activate\'',
+        // Set visible to true
+        'osascript -e \'tell application "Microsoft Excel" to set visible to true\'',
+        // Bring to front via System Events
+        'osascript -e \'tell application "System Events" to tell process "Microsoft Excel" to set frontmost to true\'',
+        // Try to get the workbook name to verify it's open
+        `osascript -e 'tell application "Microsoft Excel" to get name of active workbook'`
+      ];
+
+      let commandIndex = 0;
+      const runVisibilityCommand = () => {
+        if (commandIndex >= visibilityCommands.length) {
+          console.log('📂 Step 4: All visibility commands completed');
+
+          // Final check and window positioning
+          setTimeout(() => {
+            const finalScript = `osascript -e '
+              tell application "Microsoft Excel"
+                activate
+                try
+                  set bounds of window 1 to {50, 50, 1250, 850}
+                end try
+              end tell
+            '`;
+
+            exec(finalScript, () => {
+              console.log('✅ Workbook should now be visible and positioned');
+              resolve({ opened: true, app: 'Microsoft Excel', method: 'nuclear-workbook' });
+            });
+          }, 1000);
+          return;
+        }
+
+        console.log(`📂 Visibility command ${commandIndex + 1}: ${visibilityCommands[commandIndex].substring(0, 60)}...`);
+        exec(visibilityCommands[commandIndex], (error, stdout) => {
+          if (error) {
+            console.warn(`⚠️ Visibility command ${commandIndex + 1} failed:`, error.message);
+          } else if (stdout && commandIndex === 3) {
+            // This is the workbook name check
+            console.log(`📊 Active workbook: ${stdout.trim()}`);
+          }
+          commandIndex++;
+          setTimeout(runVisibilityCommand, 700);
+        });
+      };
+
+      runVisibilityCommand();
+    }, 2000); // Give Excel time to process the file opening
+  }
+
+  // Fallback method for Numbers
+  fallbackToNumbers(filepath, resolve) {
+    console.log('📂 Trying Numbers as fallback...');
+    exec(`open -a "Numbers" "${filepath}"`, (numbersError) => {
+      if (numbersError) {
+        console.warn('⚠️ Numbers failed, trying default app:', numbersError.message);
+        exec(`open "${filepath}"`, (defaultError) => {
+          if (defaultError) {
+            console.error('❌ All file opening methods failed:', defaultError.message);
+            resolve({ opened: false, error: defaultError.message });
+          } else {
+            console.log('✅ File opened with default application');
+            resolve({ opened: true, app: 'default' });
+          }
+        });
+      } else {
+        console.log('✅ File opened with Numbers');
+        setTimeout(() => {
+          exec('osascript -e \'tell application "Numbers" to activate\'', () => {});
+        }, 1000);
+        resolve({ opened: true, app: 'Numbers' });
+      }
+    });
+  }
+
+  // Verification method
+  verifyExcelOpened(filepath, resolve) {
+    console.log('📂 Step 6: Verifying Excel opened the file...');
+
+    // Check if Excel is running and has our file open
+    exec('osascript -e \'tell application "Microsoft Excel" to get name of active workbook\'', (scriptError, scriptStdout) => {
+      if (!scriptError && scriptStdout.trim()) {
+        console.log(`✅ Excel is active with workbook: ${scriptStdout.trim()}`);
+      }
+
+      // Additional check using lsof
+      exec(`lsof -c Excel | grep "${filepath}"`, (lsofError, lsofStdout) => {
+        if (!lsofError && lsofStdout.trim()) {
+          console.log('✅ Verified: File is definitely open in Excel');
+        } else {
+          console.log('ℹ️ File verification via lsof failed (this is often normal)');
+        }
+
+        // Final step: ensure Excel window is visible and focused
+        exec(`osascript -e 'tell application "Microsoft Excel" to activate' -e 'delay 0.5' -e 'tell application "System Events" to keystroke tab using command down'`, () => {
+          console.log('✅ Excel should now be visible and focused');
+          resolve({ opened: true, app: 'Microsoft Excel', verified: true });
+        });
       });
     });
   }

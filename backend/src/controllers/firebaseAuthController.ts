@@ -22,6 +22,7 @@ export const getProfile = async (req: AuthenticatedRequest, res: Response) => {
       // Create user if doesn't exist (first time login)
       user = await firebaseService.createUser({
         email: userEmail || '',
+        firebaseUid: userId,
         settings: JSON.stringify({
           automationMode: 'visual',
           notifications: true,

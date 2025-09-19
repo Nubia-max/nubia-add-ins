@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import path from 'path';
 import fs from 'fs/promises';
 import multer from 'multer';
@@ -34,9 +37,9 @@ export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
 export const MAX_TOTAL_SIZE = 25 * 1024 * 1024; // 25MB total
 export const MAX_FILES = 5;
 
-// Multer configuration
+// Multer configuration - use memory storage for GPT-4 Vision
 export const fileUploadConfig = multer({
-  dest: 'uploads/',
+  storage: multer.memoryStorage(), // Store files in memory for GPT-4 Vision processing
   limits: {
     fileSize: MAX_FILE_SIZE,
     files: MAX_FILES
@@ -383,7 +386,7 @@ export class FileProcessingService {
         // Clean up uploaded file (only if using disk storage)
         if (file.path) {
           await fs.unlink(file.path).catch(err =>
-            logger.warn(`Failed to delete temp file ${file.path}:`, err)
+            logger.warn(`Failed to delete temp file ${file.originalname}:`, err)
           );
         }
       }
@@ -395,7 +398,7 @@ export class FileProcessingService {
       for (const file of files) {
         if (file.path) {
           await fs.unlink(file.path).catch(err =>
-            logger.warn(`Failed to delete temp file ${file.path}:`, err)
+            logger.warn(`Failed to delete temp file ${file.originalname}:`, err)
           );
         }
       }

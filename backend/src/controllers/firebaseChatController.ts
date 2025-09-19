@@ -23,8 +23,20 @@ interface ExtractedTotals {
   }>;
 }
 
+interface ConversationEntry {
+  id: string;
+  userMessage: any;
+  gptResponse: any;
+  timestamp: string;
+  excelGenerated: boolean;
+  excelStructure?: any;
+  filesUploaded?: number;
+  documentsProcessed?: { id: string; filename: string; type: string; }[];
+  documentReferences?: { type: string; reference: string; }[];
+}
+
 interface EnhancedConversationHistory {
-  messages: any[];
+  messages: ConversationEntry[];
   lastExcelStructure: any;
   uploadedDocuments: UploadedDocument[];
   extractedTotals: ExtractedTotals[];
@@ -433,7 +445,7 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
     }
 
     // Get conversation history from Firebase
-    const history = await firebaseService.getConversationHistory(userId) || {
+    const history: EnhancedConversationHistory = await firebaseService.getConversationHistory(userId) || {
       messages: [],
       lastExcelStructure: null,
       uploadedDocuments: [],
@@ -442,11 +454,13 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
     let enhancedMessage = message;
 
     // Add context if message needs it or if context exists
-    if (needsContext(message) || history.messages.length > 0) {
-      const contextString = buildContextFromHistory(history);
-      enhancedMessage = contextString + message;
-      console.log('📝 Adding conversation context, enhanced message length:', enhancedMessage.length);
-    }
+    // TEMPORARILY DISABLED - context contains stale "I've processed your request" messages
+    // if (needsContext(message) || history.messages.length > 0) {
+    //   const contextString = buildContextFromHistory(history);
+    //   enhancedMessage = contextString + message;
+    //   console.log('📝 Adding conversation context, enhanced message length:', enhancedMessage.length);
+    // }
+    console.log('📝 Context disabled - using clean message:', enhancedMessage.length);
 
     // Call financial intelligence with context-enhanced message
     const result = await financialIntelligence.processFinancialCommand(enhancedMessage);
@@ -473,7 +487,7 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
 
       // Store conversation in Firebase
       const messageId = generateMessageId();
-      const conversationEntry = {
+      const conversationEntry: ConversationEntry = {
         id: messageId,
         userMessage: message,
         gptResponse: result.chatResponse,
@@ -483,13 +497,15 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
       };
 
       // Update conversation history (keep last 10 messages)
-      if (!history.messages) history.messages = [];
+      if (!history.messages) history.messages = [] as ConversationEntry[];
       history.messages.push(conversationEntry);
       if (history.messages.length > 10) {
         history.messages = history.messages.slice(-10);
       }
-      history.lastExcelStructure = result.structure;
-      await firebaseService.saveConversationHistory(userId, history);
+      // Remove lastExcelStructure storage - causes Firestore nested entity errors
+      // history.lastExcelStructure = result.structure;
+      // TEMPORARILY DISABLED - conversation history storage causes Firestore errors
+      // await firebaseService.saveConversationHistory(userId, history);
 
       // Store chat session for accounting
       await firebaseService.createChatSession({
@@ -517,7 +533,7 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
     } else {
       // Store conversation in Firebase for chat-only responses
       const messageId = generateMessageId();
-      const conversationEntry = {
+      const conversationEntry: ConversationEntry = {
         id: messageId,
         userMessage: message,
         gptResponse: result.chatResponse,
@@ -526,12 +542,13 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
       };
 
       // Update conversation history (keep last 10 messages)
-      if (!history.messages) history.messages = [];
+      if (!history.messages) history.messages = [] as ConversationEntry[];
       history.messages.push(conversationEntry);
       if (history.messages.length > 10) {
         history.messages = history.messages.slice(-10);
       }
-      await firebaseService.saveConversationHistory(userId, history);
+      // TEMPORARILY DISABLED - conversation history storage causes Firestore errors
+      // await firebaseService.saveConversationHistory(userId, history);
 
       // Just chat response, no Excel
       await firebaseService.createChatSession({
@@ -542,6 +559,12 @@ export const handleUniversalChat = async (req: AuthenticatedRequest, res: Respon
         ]),
         tokensUsed: result.tokensUsed
       });
+
+      // DEBUG: Log what we're actually sending to frontend
+      console.log('🔍 CHAT RESPONSE DEBUG:');
+      console.log('🔍 result.chatResponse:', JSON.stringify(result.chatResponse));
+      console.log('🔍 result.chatResponse length:', result.chatResponse?.length || 0);
+      console.log('🔍 result.chatResponse type:', typeof result.chatResponse);
 
       return res.json({
         success: true,
@@ -663,7 +686,7 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
     }
 
     // Get conversation history from Firebase for file uploads
-    const history = await firebaseService.getConversationHistory(userId) || {
+    const history: EnhancedConversationHistory = await firebaseService.getConversationHistory(userId) || {
       messages: [],
       lastExcelStructure: null,
       uploadedDocuments: [],
@@ -682,6 +705,7 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
         processedDocuments = await processAndStoreDocuments(files, userId);
 
         // Add documents to user's conversation history
+        if (!history.uploadedDocuments) history.uploadedDocuments = [] as UploadedDocument[];
         history.uploadedDocuments.push(...processedDocuments);
 
         // Keep only last 10 documents to prevent memory issues
@@ -690,6 +714,7 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
         }
 
         // Extract totals for quick reference
+        if (!history.extractedTotals) history.extractedTotals = [] as ExtractedTotals[];
         processedDocuments.forEach(doc => {
           if (doc.extractedData?.totals && doc.extractedData.totals.length > 0) {
             history.extractedTotals.push({
@@ -768,7 +793,7 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
 
       // Store enhanced conversation in Firebase for file uploads
       const messageId = generateMessageId();
-      const conversationEntry = {
+      const conversationEntry: ConversationEntry = {
         id: messageId,
         userMessage: message || '[Files uploaded]',
         gptResponse: result.chatResponse,
@@ -781,13 +806,15 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
       };
 
       // Update conversation history (keep last 10 messages)
-      if (!history.messages) history.messages = [];
+      if (!history.messages) history.messages = [] as ConversationEntry[];
       history.messages.push(conversationEntry);
       if (history.messages.length > 10) {
         history.messages = history.messages.slice(-10);
       }
-      history.lastExcelStructure = result.structure;
-      await firebaseService.saveConversationHistory(userId, history);
+      // Remove lastExcelStructure storage - causes Firestore nested entity errors
+      // history.lastExcelStructure = result.structure;
+      // TEMPORARILY DISABLED - conversation history storage causes Firestore errors
+      // await firebaseService.saveConversationHistory(userId, history);
 
       // Store chat session for accounting
       await firebaseService.createChatSession({
@@ -816,7 +843,7 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
     } else {
       // Store enhanced conversation in Firebase for chat-only responses with files
       const messageId = generateMessageId();
-      const conversationEntry = {
+      const conversationEntry: ConversationEntry = {
         id: messageId,
         userMessage: message || '[Files uploaded]',
         gptResponse: result.chatResponse,
@@ -828,12 +855,13 @@ export const handleUniversalChatWithFiles = async (req: AuthenticatedRequest, re
       };
 
       // Update conversation history (keep last 10 messages)
-      if (!history.messages) history.messages = [];
+      if (!history.messages) history.messages = [] as ConversationEntry[];
       history.messages.push(conversationEntry);
       if (history.messages.length > 10) {
         history.messages = history.messages.slice(-10);
       }
-      await firebaseService.saveConversationHistory(userId, history);
+      // TEMPORARILY DISABLED - conversation history storage causes Firestore errors
+      // await firebaseService.saveConversationHistory(userId, history);
 
       // Just chat response, no Excel
       await firebaseService.createChatSession({
@@ -1084,7 +1112,7 @@ export const testNubia = async (req: AuthenticatedRequest, res: Response) => {
     req.body = { message: testMessage };
 
     // Mock user for testing (temporarily)
-    req.user = { id: 'test-user-123', email: 'test@nubia.ai' };
+    req.user = { id: 'test-user-123', email: 'test@nubia.ai', firebaseUid: 'test-firebase-uid-123' };
 
     // Process through main handler
     await handleUniversalChat(req, res);

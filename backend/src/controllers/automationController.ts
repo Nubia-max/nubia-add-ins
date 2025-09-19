@@ -82,6 +82,10 @@ export const getAutomationHistory = async (req: AuthenticatedRequest, res: Respo
     const userId = req.user?.id;
     const { limit = 50, offset = 0 } = req.query;
 
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID not found' });
+    }
+
     // Get usage records from Firebase - simplified for now
     // TODO: Implement pagination in Firebase service if needed
     const allRecords = await firebaseService.getUserUsageRecords(userId, 'excel_automation');
@@ -135,6 +139,10 @@ export const saveAutomationTemplate = async (req: AuthenticatedRequest, res: Res
   try {
     const userId = req.user?.id;
     const { name, description, commands, category, isPublic = false } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID not found' });
+    }
 
     if (!name || !commands || !Array.isArray(commands)) {
       return res.status(400).json({ error: 'Name and commands array are required' });

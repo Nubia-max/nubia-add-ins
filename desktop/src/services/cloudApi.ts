@@ -46,7 +46,7 @@ class CloudApiService {
     this.token = null;
   }
 
-  private async request(endpoint: string, options: RequestInit = {}): Promise<any> {
+  private async request(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> {
     const url = `${this.baseUrl}${endpoint}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -77,9 +77,24 @@ class CloudApiService {
       }
 
       if (!response.ok) {
-        if (response.status === 401) {
+        if (response.status === 401 && retryCount === 0) {
+          console.log('🔄 Token expired, attempting to refresh...');
+
+          // Try to refresh the token
+          const refreshed = await this.refreshToken();
+          if (refreshed) {
+            console.log('✅ Token refreshed successfully, retrying request...');
+            // Retry the request with the new token
+            return this.request(endpoint, options, 1);
+          } else {
+            console.log('❌ Token refresh failed, clearing stored token');
+            await this.clearStoredToken();
+            throw new Error('Session expired. Please log in again.');
+          }
+        } else if (response.status === 401) {
+          // Already retried once, clear token and fail
           await this.clearStoredToken();
-          throw new Error(data.error || 'Authentication required. Please log in.');
+          throw new Error('Authentication failed. Please log in again.');
         }
         throw new Error(data.error || `API request failed with status ${response.status}`);
       }
@@ -94,13 +109,35 @@ class CloudApiService {
     }
   }
 
+  private async refreshToken(): Promise<boolean> {
+    try {
+      // Dynamic import to avoid circular dependencies
+      const authModule = await import('../services/auth.js');
+      const getCurrentUser = authModule.getCurrentUser;
+
+      const user = getCurrentUser();
+      if (user) {
+        // Force refresh the token
+        const newToken = await user.getIdToken(true);
+        if (newToken) {
+          await this.setStoredToken(newToken);
+          return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      console.error('Error refreshing token:', error);
+      return false;
+    }
+  }
+
   // Authentication (Firebase only - use Firebase client SDK for auth)
   async logout() {
     await this.clearStoredToken();
   }
 
   async getProfile() {
-    return this.request('/api/auth/me');
+    return this.request('/api/auth/profile');
   }
 
   // Subscription Management

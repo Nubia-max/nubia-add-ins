@@ -28,13 +28,14 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState(false);
-  const { 
-    user, 
-    subscription, 
-    loading: authLoading, 
+  const {
+    user,
+    subscription,
+    loading: authLoading,
     isAuthenticated,
     canUseAutomation,
-    getUsageStatus
+    getUsageStatus,
+    refreshSubscription
   } = useAuth();
 
   useEffect(() => {
@@ -94,13 +95,14 @@ function App() {
       );
     } else {
       return (
-        <ChatView 
+        <ChatView
           user={user}
           subscription={subscription}
           canUseAutomation={canUseAutomation()}
           usageStatus={getUsageStatus()}
           onShowSubscription={() => setShowSubscriptionPanel(true)}
           onShowAuth={() => setShowAuthModal(true)}
+          onRefreshSubscription={refreshSubscription}
         />
       );
     }

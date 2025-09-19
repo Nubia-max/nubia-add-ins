@@ -1,34 +1,33 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
-import { handleUniversalChat, handleUniversalChatWithFiles, clearConversation, getDocumentContext, testNubia } from '../controllers/chatController';
+import { handleImageUploadWithDirectPipeline } from '../controllers/imageUploadController';
+import { handleChat, clearConversation, getDocumentContext, testNubia } from '../controllers/chatController';
 import { auth } from '../middleware/auth';
 import { validateRequest } from '../middleware/validateRequest';
-import { fileUploadConfig } from '../services/fileProcessingService';
+import multer from 'multer';
 
 const router = Router();
 
-// Validation rules for text-only messages
-const chatMessageValidation = [
-  body('message')
-    .notEmpty()
-    .trim()
-    .isLength({ min: 1, max: 5000 })
-    .withMessage('Message must be between 1 and 5000 characters'),
-];
+// Simple file upload configuration for our direct pipeline
+const fileUploadConfig = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+    files: 5
+  }
+});
 
-// Text-only chat endpoint
-router.post('/', auth, chatMessageValidation, validateRequest, handleUniversalChat);
+// 🚀 Direct Pipeline: GPT-4 Vision → DeepSeek (with files)
+router.post('/with-files', auth, fileUploadConfig.array('files', 5), handleImageUploadWithDirectPipeline);
 
-// File upload chat endpoint
-router.post('/with-files', auth, fileUploadConfig.array('files', 5), handleUniversalChatWithFiles);
+// Simple text-only chat (no files)
+router.post('/', auth, [
+  body('message').notEmpty().withMessage('Message is required')
+], validateRequest, handleChat);
 
-// Clear conversation history
+// Utility endpoints
 router.post('/clear', auth, clearConversation);
-
-// Get document context
-router.get('/documents', auth, getDocumentContext);
-
-// Test endpoint for Nubia verification (temporarily without auth for testing)
-router.post('/test', testNubia);
+router.get('/context', auth, getDocumentContext);
+router.get('/test', testNubia);
 
 export { router as chatRoutes };
