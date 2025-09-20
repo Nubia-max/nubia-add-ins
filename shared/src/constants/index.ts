@@ -25,7 +25,6 @@ export const UI_CONSTANTS = {
 
 // Storage keys
 export const STORAGE_KEYS = {
-  AUTH_TOKEN: 'nubia-token',
   USER_SETTINGS: 'nubia-settings',
   CHAT_HISTORY: 'nubia-chat-history',
   LAST_POSITION: 'nubia-position',
@@ -59,7 +58,6 @@ export const EXCEL_CONSTANTS = {
 // Error messages
 export const ERROR_MESSAGES = {
   NETWORK_ERROR: 'Network error. Please check your connection.',
-  AUTH_ERROR: 'Authentication failed. Please log in again.',
   VALIDATION_ERROR: 'Please check your input and try again.',
   TASK_FAILED: 'Task execution failed. Please try again.',
   FILE_NOT_FOUND: 'File not found or inaccessible.',
@@ -70,7 +68,6 @@ export const ERROR_MESSAGES = {
 
 // Success messages
 export const SUCCESS_MESSAGES = {
-  LOGIN_SUCCESS: 'Successfully logged in!',
   TASK_COMPLETED: 'Task completed successfully!',
   FILE_SAVED: 'File saved successfully!',
   SETTINGS_SAVED: 'Settings saved successfully!',

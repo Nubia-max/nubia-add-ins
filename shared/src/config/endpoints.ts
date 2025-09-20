@@ -3,11 +3,6 @@ export const API_CONFIG = {
   // Backend API endpoints
   BACKEND: {
     BASE_URL: process.env.BACKEND_URL || 'http://localhost:3001',
-    AUTH: {
-      REGISTER: '/auth/register',
-      LOGIN: '/auth/login',
-      PROFILE: '/auth/me',
-    },
     CHAT: {
       HISTORY: '/chat/history',
       SEND: '/chat/send',
@@ -49,5 +44,5 @@ export const CORS_CONFIG = {
     process.env.CORS_ORIGIN || 'http://localhost:3000',
   ],
   METHODS: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  HEADERS: ['Content-Type', 'Authorization'],
+  HEADERS: ['Content-Type'],
 };

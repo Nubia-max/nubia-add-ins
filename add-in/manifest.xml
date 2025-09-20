@@ -6,7 +6,7 @@
            xsi:type="TaskPaneApp">
 
   <!-- Basic Add-in Information -->
-  <Id>12345678-1234-5678-9012-123456789abc</Id>
+  <Id>a13c8d07-8374-4598-8be6-9a1c0a8c9d07</Id>
   <Version>1.0.0.0</Version>
   <ProviderName>Nubia Team</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
@@ -18,10 +18,11 @@
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-64.png"/>
 
   <!-- Support and App Domains -->
-  <SupportUrl DefaultValue="https://nubia.ai/support"/>
+  <SupportUrl DefaultValue="https://localhost:3000/"/>
   <AppDomains>
     <AppDomain>https://localhost:3000</AppDomain>
-    <AppDomain>https://nubia.ai</AppDomain>
+    <AppDomain>http://localhost:3001</AppDomain>
+    <AppDomain>https://localhost:3001</AppDomain>
   </AppDomains>
 
   <!-- Host Applications -->
@@ -38,7 +39,7 @@
   <Permissions>ReadWriteDocument</Permissions>
 
   <!-- Version Overrides for Ribbon Integration -->
-  <VersionOverrides xmlns="http://schemas.microsoft.com/office/officeappversionoverrides" xsi:type="VersionOverridesV1_0">
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
     <Hosts>
       <Host xsi:type="Workbook">
         <DesktopFormFactor>
@@ -112,7 +113,7 @@
         <bt:Image id="Icon.80x80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://nubia.ai/docs"/>
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://localhost:3000/"/>
         <bt:Url id="Commands.Url" DefaultValue="https://localhost:3000/commands.html"/>
         <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
       </bt:Urls>

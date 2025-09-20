@@ -91,7 +91,14 @@ module.exports = (env, argv) => {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
-        'Access-Control-Allow-Headers': 'X-Requested-With, content-type, Authorization'
+        'Access-Control-Allow-Headers': 'X-Requested-With, content-type'
+      },
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3001',
+          secure: false,
+          changeOrigin: true
+        }
       },
       allowedHosts: 'all',
       client: {

@@ -39,26 +39,9 @@ export interface Chat {
   updatedAt: Date;
 }
 
-// Authentication types
-export interface AuthCredentials {
-  email: string;
-  password: string;
-}
-
-export interface RegisterCredentials extends AuthCredentials {
-  confirmPassword?: string;
-}
-
-export interface AuthResponse {
-  user: User;
-  token: string;
-  expiresIn?: string;
-}
-
-export interface AuthState {
+// User state (simplified without authentication)
+export interface UserState {
   user: User | null;
-  token: string | null;
-  isAuthenticated: boolean;
   isLoading: boolean;
 }
 
@@ -161,7 +144,7 @@ export interface ExcelFileInfo extends FileInfo {
 
 // Application state types
 export interface AppState {
-  auth: AuthState;
+  user: UserState;
   chat: {
     messages: Message[];
     isLoading: boolean;

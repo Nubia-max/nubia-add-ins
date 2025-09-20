@@ -5,7 +5,7 @@
 
 // Configuration
 const CONFIG = {
-    API_BASE_URL: 'http://localhost:3001/api',
+    API_BASE_URL: '/api',  // Use relative URL to leverage webpack proxy
     MAX_RETRIES: 3,
     RETRY_DELAY: 1000
 };
@@ -57,7 +57,7 @@ function initializeTaskpane() {
  */
 async function testBackendConnection() {
     try {
-        const response = await fetch(`${CONFIG.API_BASE_URL}/health`);
+        const response = await fetch(`${CONFIG.API_BASE_URL}/chat/test`);
         if (response.ok) {
             updateStatus('Connected to Nubia backend', 'connected');
         } else {
@@ -114,6 +114,26 @@ async function processBackendResponse(response) {
     } else if (response.type === 'action') {
         // Single action response
         await executeExcelAction(response.action, response.args);
+
+    } else if (response.type === 'multi-intent') {
+        // Multi-intent response with task breakdown
+        const taskCountMessage = `Processing ${response.tasks} task${response.tasks > 1 ? 's' : ''}...`;
+        addMessage('system', taskCountMessage, 'info');
+
+        // Show the combined feedback
+        addMessage('assistant', response.message);
+
+        // Execute any operations sequentially with feedback
+        if (response.operations && Array.isArray(response.operations)) {
+            for (let i = 0; i < response.operations.length; i++) {
+                const operation = response.operations[i];
+                if (operation && operation.type === 'action') {
+                    await executeExcelAction(operation.action, operation.args);
+                    // Small delay between operations for better UX
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+            }
+        }
 
     } else if (response.actions && Array.isArray(response.actions)) {
         // Multiple actions in array format
@@ -707,13 +727,23 @@ async function executeLegacyExcelActions(actions) {
 /**
  * Add a message to the chat
  */
-function addMessage(sender, content) {
+function addMessage(sender, content, messageType = 'normal') {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${sender}`;
 
+    // Add special styling for system messages
+    if (sender === 'system') {
+        messageDiv.className += ` system-message ${messageType}`;
+    }
+
     const senderDiv = document.createElement('div');
     senderDiv.className = 'message-sender';
-    senderDiv.textContent = sender === 'user' ? 'You' : 'Nubia';
+
+    if (sender === 'system') {
+        senderDiv.textContent = messageType === 'info' ? 'ℹ️ System' : '⚠️ System';
+    } else {
+        senderDiv.textContent = sender === 'user' ? 'You' : 'Nubia';
+    }
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';

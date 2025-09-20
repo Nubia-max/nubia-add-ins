@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { logger } from '../utils/logger';
+import { MultiIntentService } from '../services/MultiIntentService';
 
-// Enhanced chat controller for Excel add-in with rich context support
+// Enhanced chat controller for Excel add-in with rich context support and multi-intent handling
 export const handleChat = async (req: Request, res: Response) => {
   try {
     const { message, context, source } = req.body;
@@ -15,22 +16,66 @@ export const handleChat = async (req: Request, res: Response) => {
 
     logger.info(`Processing chat from ${source || 'unknown'}: ${message.substring(0, 100)}...`);
 
-    // Process Excel context if provided
-    const enhancedPrompt = buildEnhancedPrompt(message, context);
+    // Initialize multi-intent service
+    const multiIntentService = new MultiIntentService();
 
-    // Get AI response with context-aware reasoning
-    const aiResponse = await processWithAI(enhancedPrompt, context);
+    // Check if message contains multiple intents
+    const multiIntentDetection = await multiIntentService.detectMultipleIntents(message);
+    logger.info(`Multi-intent detection: ${JSON.stringify(multiIntentDetection)}`);
 
-    // Parse AI response and extract any Excel actions
-    const parsedResponse = parseAIResponse(aiResponse, context);
+    if (multiIntentDetection.hasMultiple && multiIntentDetection.confidence > 0.6) {
+      // Handle multi-intent request
+      logger.info('Processing as multi-intent request');
 
-    logger.info(`Responding with type: ${parsedResponse.type}`);
+      const tasks = await multiIntentService.splitIntoTasks(message);
+      logger.info(`Split into ${tasks.length} tasks: ${tasks.map(t => t.intent).join(', ')}`);
 
-    return res.json({
-      success: true,
-      ...parsedResponse,
-      timestamp: new Date().toISOString()
-    });
+      // Execute tasks sequentially
+      const result = await multiIntentService.executeTasks(tasks, context, async (taskMessage: string, taskContext: any, intent: string) => {
+        // Use existing single-intent processing logic
+        const enhancedPrompt = buildEnhancedPrompt(taskMessage, taskContext);
+        const aiResponse = await processWithAI(enhancedPrompt, taskContext);
+        return parseAIResponse(aiResponse, taskContext);
+      });
+
+      return res.json({
+        success: true,
+        type: 'multi-intent',
+        tasks: result.tasks,
+        message: result.feedback,
+        operations: result.operations,
+        timestamp: new Date().toISOString()
+      });
+
+    } else {
+      // Handle single-intent request (existing logic)
+      logger.info('Processing as single-intent request');
+
+      // Check for simple greeting first (bypass formula detection)
+      const lowerMessage = message.toLowerCase().trim();
+      const greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening'];
+      if (greetings.includes(lowerMessage)) {
+        return res.json({
+          success: true,
+          type: 'chat',
+          message: "Hello! I'm your AI Excel assistant. I can help you with formulas, data analysis, charts, and automation. Try selecting some data and ask me to format it, sum it, or create a chart!",
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const enhancedPrompt = buildEnhancedPrompt(message, context);
+      const aiResponse = await processWithAI(enhancedPrompt, context);
+      const parsedResponse = parseAIResponse(aiResponse, context);
+
+      logger.info(`Responding with type: ${parsedResponse.type}`);
+
+      return res.json({
+        success: true,
+        type: 'single-intent',
+        ...parsedResponse,
+        timestamp: new Date().toISOString()
+      });
+    }
 
   } catch (error) {
     logger.error('Chat controller error:', error);
@@ -117,6 +162,12 @@ Chart Types Available:
  */
 async function processWithAI(prompt: string, context: any): Promise<string> {
   const message = prompt.toLowerCase();
+
+  // Handle simple greetings first
+  const greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening'];
+  if (greetings.some(greeting => message.trim() === greeting)) {
+    return "Hello! I'm your AI Excel assistant. I can help you with formulas, data analysis, charts, and automation. Try selecting some data and ask me to format it, sum it, or create a chart!";
+  }
 
   // Enhanced formula detection
   const formulaResult = detectAndGenerateFormula(message, context);
@@ -237,7 +288,7 @@ function detectAndGenerateFormula(message: string, context: any): any | null {
     percent: ['percent', 'percentage', '%', 'percent of', 'percentage of'],
     multiply: ['multiply', 'times', 'product', '*', 'multiplication'],
     divide: ['divide', 'divided by', 'ratio', '/', 'division'],
-    if: ['if', 'condition', 'conditional', 'when', 'check if'],
+    if: ['condition', 'conditional', 'when', 'check if', 'if statement'],
     lookup: ['lookup', 'vlookup', 'find', 'search for', 'match'],
     concatenate: ['concatenate', 'combine', 'join', 'merge text', 'concat'],
     date: ['today', 'now', 'current date', 'date', 'year', 'month', 'day'],
@@ -307,10 +358,14 @@ function detectFormulaType(message: string, keywords: Record<string, string[]>):
     'if', 'multiply', 'divide', 'average', 'count', 'max', 'min', 'sum', 'calculate'
   ];
 
-  // Check each type in priority order
+  // Check each type in priority order with word boundary matching
   for (const type of priorityOrder) {
     const terms = keywords[type];
-    if (terms && terms.some((term: string) => message.includes(term))) {
+    if (terms && terms.some((term: string) => {
+      // Use word boundaries for better matching
+      const regex = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      return regex.test(message);
+    })) {
       return type;
     }
   }
@@ -967,8 +1022,11 @@ function detectAndGenerateChart(message: string, context: any): any | null {
 
   const lowerMessage = message.toLowerCase();
 
-  // Check if message contains chart intent
-  const hasChartIntent = chartKeywords.some(keyword => lowerMessage.includes(keyword));
+  // Check if message contains chart intent with word boundaries
+  const hasChartIntent = chartKeywords.some(keyword => {
+    const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    return regex.test(lowerMessage);
+  });
   if (!hasChartIntent) return null;
 
   // Detect chart type
@@ -1036,7 +1094,10 @@ function detectChartType(message: string): string {
 
   for (const chartType of priorityOrder) {
     const keywords = chartTypeMap[chartType];
-    if (keywords && keywords.some(keyword => message.includes(keyword))) {
+    if (keywords && keywords.some(keyword => {
+      const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+      return regex.test(message);
+    })) {
       return chartType;
     }
   }

@@ -58,32 +58,12 @@ const upload = multer({
 
 // Middleware
 app.use(helmet());
+// Temporarily disable CORS completely for debugging Excel add-in connectivity
 app.use(cors({
-  origin: function(origin: any, callback: any) {
-    // Allow requests with no origin (like mobile apps or Postman)
-    if (!origin) return callback(null, true);
-
-    const allowedOrigins = [
-      'http://localhost:3000',  // Add-in dev server
-      'https://localhost:3000', // Add-in dev server (HTTPS)
-      'http://localhost:3001',  // Backend itself
-      'https://nubia.ai'        // Production domain
-    ];
-
-    // Check if origin starts with any allowed origin
-    const isAllowed = allowedOrigins.some(allowed =>
-      origin.startsWith(allowed)
-    );
-
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS') as any, false);
-    }
-  },
+  origin: true,  // Allow all origins
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type']
 }));
 app.use(limiter);
 app.use(express.json({ limit: '10mb' }));
@@ -150,9 +130,10 @@ server.timeout = 300000; // 5 minutes
 server.keepAliveTimeout = 61000; // 61 seconds (must be > proxy timeout)
 server.headersTimeout = 62000; // 62 seconds (must be > keepAliveTimeout)
 
-server.listen(PORT, () => {
+server.listen(Number(PORT), '0.0.0.0', () => {
   logger.info(`🚀 Nubia Excel Add-in Server running on http://localhost:${PORT}`);
   logger.info(`📡 API available at http://localhost:${PORT}/api`);
+  logger.info(`🌐 Also accessible via network IP on port ${PORT}`);
   logger.info(`📊 Service: Excel Add-in Backend`);
   logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   logger.info(`⏱️ Server timeout: 5 minutes for AI processing`);
