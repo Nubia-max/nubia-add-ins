@@ -4,33 +4,80 @@ import { generateDirectExcelCode } from '../services/directExcelAI';
 import { contextCache } from '../services/contextCache';
 
 /**
- * Simplified chat controller using Excel GPT for all operations
+ * SSE endpoint for streaming complex operations
  */
-export const handleChat = async (req: Request, res: Response) => {
+export const handleChatStream = async (req: Request, res: Response) => {
+  const { message, context, source } = req.body;
+
+  // Set SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control'
+  });
+
+  const sendEvent = (event: string, data: any) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
   try {
-    const { message, context, source } = req.body;
+    sendEvent('progress', { status: 'Starting AI analysis...', progress: 10 });
 
-    if (!message) {
-      return res.status(400).json({
-        success: false,
-        error: 'Message is required'
-      });
-    }
-
-    logger.info(`Processing chat from ${source || 'unknown'}: ${message.substring(0, 100)}...`);
-
-    // Enhance context with smart analysis
     const sessionId = req.headers['x-session-id'] as string || 'default';
     const enhancedContext = contextCache.enhanceContext(context || {});
-
-    // Cache the enhanced context
     contextCache.cacheContext(sessionId, enhancedContext);
 
-    logger.info('🚀 Processing with Direct Excel AI - UNLIMITED POWER MODE', {
-      contextType: enhancedContext.selectionType,
-      semanticTags: enhancedContext.semanticTags,
-      suggestions: enhancedContext.suggestedOperations
+    sendEvent('progress', { status: 'Context enhanced, generating code...', progress: 30 });
+
+    const directResponse = await generateDirectExcelCode({
+      userCommand: message,
+      excelContext: enhancedContext
     });
+
+    sendEvent('progress', { status: 'Code generated, finalizing...', progress: 90 });
+
+    sendEvent('complete', {
+      success: true,
+      type: 'direct-excel',
+      understanding: directResponse.understanding,
+      code: directResponse.code,
+      message: directResponse.message,
+      confidence: directResponse.confidence,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    sendEvent('error', {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  } finally {
+    res.end();
+  }
+};
+
+/**
+ * Main chat controller - now redirects all operations to streaming
+ */
+export const handleChat = async (req: Request, res: Response) => {
+  const { message, context, source } = req.body;
+
+  if (!message) {
+    return res.status(400).json({
+      success: false,
+      error: 'Message is required'
+    });
+  }
+
+  try {
+    logger.info(`Processing chat from ${source || 'unknown'}: ${message.substring(0, 100)}...`);
+
+    const sessionId = req.headers['x-session-id'] as string || 'default';
+    const enhancedContext = contextCache.enhanceContext(context || {});
+    contextCache.cacheContext(sessionId, enhancedContext);
 
     const directResponse = await generateDirectExcelCode({
       userCommand: message,
@@ -43,9 +90,6 @@ export const handleChat = async (req: Request, res: Response) => {
       confidence: directResponse.confidence
     });
 
-    // Add processing time info for debugging
-    const processingTime = Date.now() - Date.now();
-
     return res.json({
       success: true,
       type: 'direct-excel',
@@ -53,8 +97,7 @@ export const handleChat = async (req: Request, res: Response) => {
       code: directResponse.code,
       message: directResponse.message,
       confidence: directResponse.confidence,
-      timestamp: new Date().toISOString(),
-      processingTimeMs: processingTime
+      timestamp: new Date().toISOString()
     });
 
   } catch (error) {

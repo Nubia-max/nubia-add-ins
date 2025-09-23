@@ -37,11 +37,10 @@ async function sendMessage() {
         // Get Excel context
         const context = await getExcelContext();
 
-        // Add detailed logging for debugging
         console.log('Sending request to:', `${BACKEND_URL}/chat`);
         console.log('Request data:', { message, context, source: 'excel-addin' });
 
-        // Send request to backend
+        // Send regular HTTP request
         const response = await fetch(`${BACKEND_URL}/chat`, {
             method: 'POST',
             headers: {
@@ -81,6 +80,81 @@ async function sendMessage() {
         removeLoadingIndicator(loadingDiv);
         addSystemMessage(`❌ Connection error: ${error.message} (Check console for details)`, 'error');
         updateStatus('Connection error', 'error');
+    }
+}
+
+async function sendStreamingMessage(message, context, loadingDiv) {
+    return new Promise((resolve, reject) => {
+        // Send POST request to initiate SSE stream
+        fetch(`${BACKEND_URL}/chat`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                message: message,
+                context: context,
+                source: 'excel-addin'
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            function readStream() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        removeLoadingIndicator(loadingDiv);
+                        resolve();
+                        return;
+                    }
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    let currentEventType = '';
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            currentEventType = line.substring(7).trim();
+                        } else if (line.startsWith('data: ')) {
+                            const data = line.substring(6).trim();
+                            try {
+                                const parsedData = JSON.parse(data);
+                                handleStreamEvent(currentEventType, parsedData, loadingDiv);
+                            } catch (e) {
+                                console.log('Non-JSON data:', data);
+                            }
+                        }
+                    }
+
+                    readStream();
+                }).catch(reject);
+            }
+
+            readStream();
+        })
+        .catch(reject);
+    });
+}
+
+function handleStreamEvent(eventType, data, loadingDiv) {
+    if (eventType === 'progress') {
+        // Update loading indicator with progress
+        updateLoadingIndicator(loadingDiv, data.status, data.progress);
+        updateStatus(data.status);
+    } else if (eventType === 'complete') {
+        // Handle final response
+        removeLoadingIndicator(loadingDiv);
+        handleResponse(data);
+    } else if (eventType === 'error') {
+        // Handle error
+        removeLoadingIndicator(loadingDiv);
+        addSystemMessage(`❌ Error: ${data.error}`, 'error');
+        updateStatus('Error', 'error');
     }
 }
 
@@ -166,49 +240,68 @@ async function handleResponse(response) {
 async function getExcelContext() {
     try {
         return await Excel.run(async (context) => {
-            const worksheet = context.workbook.worksheets.getActiveWorksheet();
             const workbook = context.workbook;
-            const selectedRange = context.workbook.getSelectedRange();
-            const usedRange = worksheet.getUsedRange();
+            const worksheets = workbook.worksheets;
+            const activeWorksheet = workbook.worksheets.getActiveWorksheet();
+            const selectedRange = workbook.getSelectedRange();
 
-            // Load basic properties
-            worksheet.load(['name', 'tabColor']);
+            // Load all worksheets
+            worksheets.load(['items/name', 'items/tabColor']);
             workbook.load(['name']);
+            activeWorksheet.load(['name']);
             selectedRange.load(['address', 'values', 'rowCount', 'columnCount']);
 
-            // Try to load used range (might be null for empty sheets)
-            try {
-                usedRange.load(['address', 'rowCount', 'columnCount']);
-            } catch (e) {
-                // Ignore if no used range
+            await context.sync();
+
+            // Get data from all worksheets
+            const allWorksheetsData = [];
+            for (const sheet of worksheets.items) {
+                try {
+                    const usedRange = sheet.getUsedRange();
+                    usedRange.load(['address', 'values', 'rowCount', 'columnCount']);
+                    await context.sync();
+
+                    allWorksheetsData.push({
+                        name: sheet.name,
+                        tabColor: sheet.tabColor,
+                        usedRange: usedRange.address,
+                        rowCount: usedRange.rowCount,
+                        columnCount: usedRange.columnCount,
+                        sampleData: usedRange.values.slice(0, 5) // First 5 rows for context
+                    });
+                } catch (e) {
+                    // Empty sheet - add basic info
+                    allWorksheetsData.push({
+                        name: sheet.name,
+                        tabColor: sheet.tabColor,
+                        usedRange: 'A1',
+                        rowCount: 0,
+                        columnCount: 0,
+                        sampleData: []
+                    });
+                }
             }
 
             await context.sync();
 
-            // Build rich context
+            // Build rich context with ALL worksheets
             const richContext = {
                 // Basic info
-                sheetName: worksheet.name,
+                activeSheetName: activeWorksheet.name,
                 workbookName: workbook.name,
                 timestamp: new Date().toISOString(),
 
-                // Selection info
+                // All worksheets data - THIS IS THE KEY IMPROVEMENT
+                worksheets: allWorksheetsData,
+                totalWorksheets: allWorksheetsData.length,
+
+                // Selection info (from active sheet)
                 selectedRange: selectedRange.address,
                 selectedData: selectedRange.values,
                 selectionSize: {
                     rows: selectedRange.rowCount,
                     columns: selectedRange.columnCount
-                },
-
-                // Sheet structure
-                usedRange: usedRange ? usedRange.address : 'A1',
-                dataSize: usedRange ? {
-                    rows: usedRange.rowCount,
-                    columns: usedRange.columnCount
-                } : { rows: 0, columns: 0 },
-
-                // Visual context
-                tabColor: worksheet.tabColor || null
+                }
             };
 
             // Add semantic hints based on selection
@@ -302,7 +395,7 @@ function addLoadingIndicator() {
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content loading-indicator';
-    contentDiv.innerHTML = 'Thinking<div class="loading-dots"><span></span><span></span><span></span></div>';
+    contentDiv.innerHTML = 'Starting request...<div class="loading-dots"><span></span><span></span><span></span></div>';
 
     loadingDiv.appendChild(senderDiv);
     loadingDiv.appendChild(contentDiv);
@@ -316,6 +409,25 @@ function addLoadingIndicator() {
 function removeLoadingIndicator(loadingDiv) {
     if (loadingDiv && loadingDiv.parentNode) {
         loadingDiv.parentNode.removeChild(loadingDiv);
+    }
+}
+
+function updateLoadingIndicator(loadingDiv, status, progress) {
+    if (loadingDiv) {
+        const contentDiv = loadingDiv.querySelector('.message-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = `
+                <div class="loading-indicator">
+                    ${status}
+                    ${progress ? `(${progress}%)` : ''}
+                    <div class="loading-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            `;
+        }
     }
 }
 

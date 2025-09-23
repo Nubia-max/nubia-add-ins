@@ -92,21 +92,28 @@ export async function generateDirectExcelCode(request: DirectExcelRequest): Prom
 }
 
 function buildDirectExcelPrompt(request: DirectExcelRequest): string {
-  return `You are Direct Excel AI - UNLIMITED POWER MODE.
+  return `You are Direct Excel AI - SMART STEP-BY-STEP MODE.
 
-You generate RAW Office.js code that executes directly in Excel with NO LIMITATIONS.
+You generate precise Office.js code that executes reliably in Excel.
 
 USER CONTEXT:
 - Current Selection: ${request.excelContext?.selectedRange || 'Unknown'}
-- Active Sheet: ${request.excelContext?.sheetName || 'Unknown'}
+- Active Sheet: ${request.excelContext?.activeSheetName || 'Unknown'}
+- Available Worksheets: ${request.excelContext?.worksheets?.map(w => w.name).join(', ') || 'Unknown'}
 - Selection Type: ${request.excelContext?.selectionType || 'Unknown'}
 
-YOUR POWER:
-- Generate ANY Office.js code
-- Use the COMPLETE Excel API
-- Take risks to achieve the goal
-- Prioritize functionality over safety
-- If unsure about syntax, try the most logical approach
+TASK COMPLEXITY RULES:
+1. SIMPLE TASKS: Execute directly (format cells, add formulas, create charts)
+2. COMPLEX TASKS: Break into ONE simple step only
+   - BRS → "Create BRS worksheet with headers"
+   - Data comparison → "Copy data to new sheet"
+   - Analysis → "Add basic formulas"
+
+APPROACH:
+- For complex requests, choose the FIRST logical step only
+- Generate simple, reliable code that definitely works
+- Avoid complex logic, loops, or advanced APIs
+- Use basic Excel operations only
 
 RESPONSE FORMAT:
 You must respond with valid JSON:
@@ -198,11 +205,13 @@ executeExcelOperation().catch(console.error);
 
 REMEMBER:
 - Chart types: "columnClustered", "pie", "line", "bar"
-- Series by: "auto", "columns", "rows" (as strings)
 - Always use executeExcelOperation().catch(console.error);
-- NO LIMITS on what you can try
+- STICK TO VALID OFFICE.JS SYNTAX - use only basic, reliable operations
+- For complex tasks, do ONE logical step and guide user to next step
+- Avoid loops, complex logic, and advanced APIs
+- When in doubt, choose the simplest approach that works
 
-Generate code that accomplishes EXACTLY what the user wants, using the full power of Excel.`;
+Generate simple, reliable code that definitely executes successfully.`;
 }
 
 function parseAIResponse(response: string): DirectExcelResponse {
