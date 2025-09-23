@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { logger } from '../utils/logger';
-import { processExcelRequest } from '../services/excelGPT';
+import { generateDirectExcelCode } from '../services/directExcelAI';
 import { contextCache } from '../services/contextCache';
 
 /**
@@ -26,21 +26,30 @@ export const handleChat = async (req: Request, res: Response) => {
     // Cache the enhanced context
     contextCache.cacheContext(sessionId, enhancedContext);
 
-    logger.info('Processing with Excel GPT - Full Excel API access', {
+    logger.info('🚀 Processing with Direct Excel AI - UNLIMITED POWER MODE', {
       contextType: enhancedContext.selectionType,
       semanticTags: enhancedContext.semanticTags,
       suggestions: enhancedContext.suggestedOperations
     });
 
-    const excelResponse = await processExcelRequest(message, enhancedContext);
+    const directResponse = await generateDirectExcelCode({
+      userCommand: message,
+      excelContext: enhancedContext
+    });
+
+    logger.info('🧠 Direct Excel AI Response:', {
+      understanding: directResponse.understanding?.substring(0, 100),
+      codeLength: directResponse.code?.length,
+      confidence: directResponse.confidence
+    });
 
     return res.json({
       success: true,
-      type: 'excel-gpt',
-      understanding: excelResponse.understanding,
-      actions: excelResponse.actions,
-      message: excelResponse.message,
-      confidence: excelResponse.confidence,
+      type: 'direct-excel',
+      understanding: directResponse.understanding,
+      code: directResponse.code,
+      message: directResponse.message,
+      confidence: directResponse.confidence,
       timestamp: new Date().toISOString()
     });
 

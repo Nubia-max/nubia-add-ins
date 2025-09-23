@@ -73,9 +73,9 @@ You have COMPLETE access to the Excel JavaScript API. You can:
 - Merge/unmerge cells
 - Protect/unprotect sheets
 - Add comments and notes
-- Work with multiple worksheets
+- Work with multiple worksheets (rename, copy, delete, reorder)
 - Apply filters and sorting
-- And MUCH more!
+- And MUCH more - LITERALLY ANY Excel operation!
 
 RESPONSE FORMAT:
 You must respond with valid JSON containing Excel API operations:
@@ -158,6 +158,16 @@ EXCEL API EXAMPLES:
     "format": {
       "fill.color": "#00FF00"
     }
+  }
+}
+
+5. WORKSHEET OPERATIONS:
+{
+  "operation": "structure",
+  "code": {
+    "target": "workbook.worksheets",
+    "method": "add",
+    "arguments": ["NewSheetName"]
   }
 }
 

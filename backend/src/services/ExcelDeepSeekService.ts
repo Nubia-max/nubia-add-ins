@@ -12,18 +12,17 @@ interface ExcelAnalysisRequest {
 }
 
 interface ExcelOperation {
-  type: 'edit_cell' | 'add_formula' | 'format_cell' | 'format_range' | 'insert_row' | 'delete_row' |
-        'insert_column' | 'delete_column' | 'create_chart' | 'create_pivot' | 'sort_data' |
-        'filter_data' | 'merge_cells' | 'unmerge_cells' | 'add_validation' | 'protect_sheet' |
-        'conditional_format' | 'find_replace' | 'auto_fill' | 'copy_paste';
-  sheet: string;
-  target: string; // Cell address or range
+  type: string; // Allow any operation type for unlimited Excel operations
+  sheet?: string;
+  target?: string; // Cell address or range
   value?: any;
   formula?: string;
   format?: any;
   options?: any;
   description: string;
   reasoning?: string;
+  newName?: string; // For rename operations
+  [key: string]: any; // Allow additional properties for flexibility
 }
 
 interface ExcelAnalysisResult {
@@ -242,10 +241,16 @@ EXCEL OPERATIONS YOU CAN PERFORM:
 6. sort_data - Sort data ranges
 7. filter_data - Apply filters
 8. merge_cells/unmerge_cells - Merge/unmerge cell ranges
-9. conditional_format - Apply conditional formatting
-10. find_replace - Find and replace values
-11. auto_fill - Auto-fill patterns and series
-12. copy_paste - Copy and paste operations
+9. rename_sheet - Rename worksheets (use newName property)
+10. copy_sheet - Copy worksheets
+11. delete_sheet - Delete worksheets
+12. move_sheet - Reorder worksheets
+13. protect_sheet - Protect/unprotect worksheets
+14. conditional_format - Apply conditional formatting
+15. find_replace - Find and replace values
+16. auto_fill - Auto-fill patterns and series
+17. copy_paste - Copy and paste operations
+18. Any other Excel operation - You have unlimited capabilities!
 
 OPERATION FORMAT:
 Always respond with valid JSON in this exact format:

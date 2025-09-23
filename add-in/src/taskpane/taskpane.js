@@ -64,7 +64,7 @@ async function sendMessage() {
         }
 
         const data = await response.json();
-        console.log('Response data:', data);
+        console.log('🔍 Full backend response:', JSON.stringify(data, null, 2));
 
         // Remove loading indicator
         removeLoadingIndicator(loadingDiv);
@@ -85,16 +85,54 @@ async function sendMessage() {
 }
 
 async function handleResponse(response) {
-    // Handle Excel GPT response
-    if (response.type === 'excel-gpt') {
+    // Handle Direct Excel AI response (UNLIMITED POWER MODE)
+    if (response.type === 'direct-excel') {
         // Show understanding message
         if (response.understanding) {
             addMessage('assistant', response.understanding);
         }
 
-        // Execute Excel API operations
-        if (response.actions && Array.isArray(response.actions)) {
-            for (const action of response.actions) {
+        // Execute raw AI-generated code directly
+        if (response.code) {
+            console.log('🚀 UNLIMITED POWER MODE: Executing direct AI code');
+
+            try {
+                addSystemMessage(`🚀 Executing: ${response.message}`, 'info');
+
+                const result = await window.executeUnlimitedExcelCode(
+                    response.code,
+                    response.message
+                );
+
+                if (result.success) {
+                    addSystemMessage(`✅ SUCCESS: ${response.message}`, 'success');
+                } else {
+                    addSystemMessage(`⚠️ PARTIAL: ${result.message || 'Operation completed with warnings'}`, 'warning');
+                }
+
+            } catch (error) {
+                console.error('🚨 Direct execution failed:', error);
+                addSystemMessage(`❌ FAILED: ${error.message}`, 'error');
+            }
+        }
+
+        // Show final message
+        if (response.message) {
+            addMessage('assistant', response.message);
+        }
+
+    }
+    // Legacy support for old Excel GPT response
+    else if (response.type === 'excel-gpt') {
+        // Show understanding message
+        if (response.understanding) {
+            addMessage('assistant', response.understanding);
+        }
+
+        // Execute Excel API operations (old system)
+        const actions = response.actions || response.excelGPT?.actions || response.result?.operations || [];
+        if (actions && Array.isArray(actions) && actions.length > 0) {
+            for (const action of actions) {
                 if (action.type === 'excel-api') {
                     try {
                         await window.executeExcelOperation(action);

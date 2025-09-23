@@ -1,11 +1,20 @@
 /**
- * Universal Excel Executor
- * Can execute ANY Excel operation based on API specifications from OpenAI
+ * Universal Excel Executor - Complete Excel Object Model Support
+ * Can execute ANY Excel operation on the entire Excel object model:
+ * - Workbook operations (create, save, protect, properties)
+ * - Worksheet operations (add, delete, rename, copy, move)
+ * - Range operations (format, formulas, values, charts)
+ * - Table operations (create, format, filter, sort)
+ * - Chart operations (create, modify, style)
+ * - PivotTable operations (create, refresh, format)
+ * - Comments, shapes, images, and all other Excel features
+ *
+ * NO HARDCODED LIMITATIONS - Executes any AI-generated Excel API call
  */
 
 /**
  * Execute Excel API operations dynamically
- * @param {object} action - The action object from OpenAI
+ * @param {object} action - The action object from AI
  * @returns {Promise<void>}
  */
 async function executeExcelOperation(action) {
@@ -16,40 +25,25 @@ async function executeExcelOperation(action) {
             // Get the active worksheet
             const worksheet = context.workbook.worksheets.getActiveWorksheet();
 
-            switch (code.method) {
-                case 'getRange':
-                    await executeRangeOperation(worksheet, code);
-                    break;
+            // Execute ALL operations dynamically - no hardcoded cases
+            const result = await executeDynamicOperation(worksheet, code);
 
-                case 'addChart':
-                    await executeChartOperation(worksheet, code);
-                    break;
+            // Always sync after operations, especially for structural changes
+            await context.sync();
 
-                case 'addTable':
-                    await executeTableOperation(worksheet, code);
-                    break;
-
-                case 'conditionalFormats.add':
-                    await executeConditionalFormat(worksheet, code);
-                    break;
-
-                case 'protection':
-                    await executeProtection(worksheet, code);
-                    break;
-
-                case 'insertRowsAbove':
-                case 'insertRowsBelow':
-                case 'insertColumnsLeft':
-                case 'insertColumnsRight':
-                    await executeStructuralChange(worksheet, code);
-                    break;
-
-                default:
-                    // For any other Excel API method, try to execute it dynamically
-                    await executeDynamicOperation(worksheet, code);
+            // If we created a new worksheet, activate it
+            if (code.method === 'add' && code.target && code.target.includes('worksheets') && result) {
+                try {
+                    if (typeof result.activate === 'function') {
+                        result.activate();
+                        await context.sync();
+                        console.log('✅ New worksheet activated successfully');
+                    }
+                } catch (activateError) {
+                    console.warn('Could not activate new worksheet:', activateError);
+                }
             }
 
-            await context.sync();
             return { success: true };
 
         } catch (error) {
@@ -60,197 +54,132 @@ async function executeExcelOperation(action) {
 }
 
 /**
- * Execute range-based operations (formatting, formulas, values)
- */
-async function executeRangeOperation(worksheet, code) {
-    const range = worksheet.getRange(code.target);
-
-    // Apply all properties dynamically
-    for (const [key, value] of Object.entries(code.properties || {})) {
-        try {
-            // Handle nested properties like format.fill.color
-            const keys = key.split('.');
-            let target = range;
-
-            for (let i = 0; i < keys.length - 1; i++) {
-                target = target[keys[i]];
-            }
-
-            target[keys[keys.length - 1]] = value;
-
-        } catch (error) {
-            console.warn(`Could not set property ${key}:`, error);
-        }
-    }
-
-    return range;
-}
-
-/**
- * Execute chart operations
- */
-async function executeChartOperation(worksheet, code) {
-    const charts = worksheet.charts;
-
-    const chart = charts.add(
-        code.chartType || Excel.ChartType.columnClustered,
-        worksheet.getRange(code.sourceData),
-        code.seriesBy || Excel.ChartSeriesBy.auto
-    );
-
-    // Position the chart
-    if (code.position) {
-        chart.top = code.position.top || 100;
-        chart.left = code.position.left || 100;
-        chart.width = code.position.width || 400;
-        chart.height = code.position.height || 300;
-    }
-
-    // Set title if provided
-    if (code.title) {
-        chart.title.text = code.title;
-    }
-
-    return chart;
-}
-
-/**
- * Execute table operations
- */
-async function executeTableOperation(worksheet, code) {
-    const tables = worksheet.tables;
-
-    const table = tables.add(
-        worksheet.getRange(code.target),
-        code.hasHeaders !== false // Default to true
-    );
-
-    if (code.name) {
-        table.name = code.name;
-    }
-
-    if (code.style) {
-        table.style = code.style;
-    }
-
-    return table;
-}
-
-/**
- * Execute conditional formatting
- */
-async function executeConditionalFormat(worksheet, code) {
-    const range = worksheet.getRange(code.target);
-    const conditionalFormat = range.conditionalFormats.add(code.type);
-
-    // Apply the rule
-    if (code.rule) {
-        Object.assign(conditionalFormat.rule, code.rule);
-    }
-
-    // Apply the format
-    if (code.format) {
-        for (const [key, value] of Object.entries(code.format)) {
-            const keys = key.split('.');
-            let target = conditionalFormat;
-
-            for (let i = 0; i < keys.length - 1; i++) {
-                target = target[keys[i]];
-            }
-
-            target[keys[keys.length - 1]] = value;
-        }
-    }
-
-    return conditionalFormat;
-}
-
-/**
- * Execute protection operations
- */
-async function executeProtection(worksheet, code) {
-    const protection = worksheet.protection;
-
-    if (code.protect) {
-        protection.protect(code.options || {});
-    } else {
-        protection.unprotect();
-    }
-
-    return protection;
-}
-
-/**
- * Execute structural changes (insert/delete rows/columns)
- */
-async function executeStructuralChange(worksheet, code) {
-    const range = worksheet.getRange(code.target);
-
-    switch (code.method) {
-        case 'insertRowsAbove':
-            range.getEntireRow().insert(Excel.InsertShiftDirection.down);
-            break;
-        case 'insertRowsBelow':
-            range.getEntireRow().insert(Excel.InsertShiftDirection.down);
-            break;
-        case 'insertColumnsLeft':
-            range.getEntireColumn().insert(Excel.InsertShiftDirection.right);
-            break;
-        case 'insertColumnsRight':
-            range.getEntireColumn().insert(Excel.InsertShiftDirection.right);
-            break;
-        case 'deleteRows':
-            range.getEntireRow().delete(Excel.DeleteShiftDirection.up);
-            break;
-        case 'deleteColumns':
-            range.getEntireColumn().delete(Excel.DeleteShiftDirection.left);
-            break;
-    }
-}
-
-/**
- * Execute any other Excel operation dynamically
+ * Execute ANY Excel operation dynamically based on AI-generated code
  */
 async function executeDynamicOperation(worksheet, code) {
-    // This is a catch-all for any Excel API operation
-    // It attempts to execute the operation based on the method and properties
-
     try {
-        // Parse the method path (e.g., "range.format.fill")
-        const methodPath = code.method.split('.');
+        console.log('Executing dynamic operation:', code);
+
+        // Start with appropriate target
         let target = worksheet;
 
-        // Navigate to the target object
+        // Handle ANY Excel object model target
         if (code.target) {
-            target = worksheet.getRange(code.target);
-        }
-
-        // Apply any additional navigation
-        for (const key of methodPath) {
-            if (typeof target[key] === 'function') {
-                target = target[key]();
+            if (code.target.match(/^[A-Z]+\d+(:[A-Z]+\d+)?$/)) {
+                // Cell/range reference like "A1" or "A1:B10"
+                target = worksheet.getRange(code.target);
             } else {
-                target = target[key];
+                // Navigate to any Excel object dynamically
+                const targetPath = code.target.split('.');
+                let current = worksheet.context;
+
+                for (const part of targetPath) {
+                    if (current && current[part] !== undefined) {
+                        current = current[part];
+                    } else {
+                        console.warn(`Cannot navigate to target: ${part} in ${code.target}`);
+                        current = null;
+                        break;
+                    }
+                }
+
+                if (current) {
+                    target = current;
+                } else {
+                    // Fallback: try from workbook level
+                    current = worksheet.context.workbook;
+                    for (const part of targetPath) {
+                        if (current && current[part] !== undefined) {
+                            current = current[part];
+                        } else {
+                            console.warn(`Cannot navigate to workbook target: ${part} in ${code.target}`);
+                            break;
+                        }
+                    }
+                    if (current) target = current;
+                }
             }
         }
 
-        // Apply properties if any
-        if (code.properties) {
-            Object.assign(target, code.properties);
-        }
+        // Handle method execution
+        if (code.method) {
+            const methodPath = code.method.split('.');
+            let current = target;
 
-        // Execute method if specified
-        if (code.execute) {
-            if (typeof target[code.execute] === 'function') {
-                target[code.execute](...(code.arguments || []));
+            // Navigate to the method, but execute the last part
+            for (let i = 0; i < methodPath.length; i++) {
+                const methodPart = methodPath[i];
+
+                if (i === methodPath.length - 1) {
+                    // Last part - execute it if it's a function
+                    if (current && typeof current[methodPart] === 'function') {
+                        console.log(`Executing method: ${methodPart}`, code.arguments);
+                        current = current[methodPart](...(code.arguments || []));
+                    } else if (current && current[methodPart] !== undefined) {
+                        current = current[methodPart];
+                    }
+                } else {
+                    // Navigate deeper
+                    if (current && current[methodPart] !== undefined) {
+                        current = current[methodPart];
+                    } else {
+                        console.warn(`Cannot navigate to ${methodPart} in method path`);
+                        break;
+                    }
+                }
+            }
+
+            // Update target to the result of method execution
+            if (current) {
+                target = current;
             }
         }
+
+        // Apply properties safely
+        if (code.properties && target) {
+            Object.keys(code.properties).forEach(key => {
+                try {
+                    if (key.includes('.')) {
+                        // Handle nested properties like "format.fill.color"
+                        const keyParts = key.split('.');
+                        let nestedTarget = target;
+
+                        // Navigate to the nested property
+                        for (let i = 0; i < keyParts.length - 1; i++) {
+                            if (!nestedTarget[keyParts[i]]) {
+                                nestedTarget[keyParts[i]] = {};
+                            }
+                            nestedTarget = nestedTarget[keyParts[i]];
+                        }
+
+                        // Set the final property
+                        nestedTarget[keyParts[keyParts.length - 1]] = code.properties[key];
+                    } else {
+                        // Direct property assignment
+                        target[key] = code.properties[key];
+                    }
+                } catch (propError) {
+                    console.warn(`Failed to set property ${key}:`, propError);
+                }
+            });
+        }
+
+        // Handle special Excel operations
+        if (code.formulas && target.formulas !== undefined) {
+            target.formulas = code.formulas;
+        }
+
+        if (code.values && target.values !== undefined) {
+            target.values = code.values;
+        }
+
+        // Don't try to access worksheet properties here - handle activation in main function
 
         return target;
 
     } catch (error) {
         console.error('Dynamic operation failed:', error);
-        throw new Error(`Could not execute ${code.method}: ${error.message}`);
+        throw new Error(`Could not execute operation: ${error.message}`);
     }
 }
 

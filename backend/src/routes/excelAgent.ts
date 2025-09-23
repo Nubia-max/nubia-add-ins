@@ -1,14 +1,13 @@
 import { Router } from 'express';
 import { auth, AuthenticatedRequest } from '../middleware/auth';
 import ExcelAgentService from '../services/ExcelAgentService';
-import ExcelDeepSeekService from '../services/ExcelDeepSeekService';
+import { processExcelRequest } from '../services/excelGPT';
 import { logger } from '../utils/logger';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 const router = Router();
 const excelAgent = new ExcelAgentService();
-const excelDeepSeek = new ExcelDeepSeekService();
 
 // Analyze Excel file endpoint
 router.post('/analyze', auth, async (req: AuthenticatedRequest, res) => {
@@ -57,7 +56,7 @@ router.post('/analyze', auth, async (req: AuthenticatedRequest, res) => {
     logger.error('Error analyzing Excel file:', error);
     res.status(500).json({
       error: 'Failed to analyze Excel file',
-      message: error.message
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -78,12 +77,6 @@ router.post('/edit', auth, async (req: AuthenticatedRequest, res) => {
 
     logger.info(`Processing Excel edit command for user ${userId}: ${command.substring(0, 100)}`);
 
-    // Validate command
-    const commandValidation = excelDeepSeek.validateCommand(command);
-    if (!commandValidation.valid) {
-      return res.status(400).json({ error: commandValidation.message });
-    }
-
     // Validate file exists
     try {
       await fs.access(filePath);
@@ -91,83 +84,64 @@ router.post('/edit', auth, async (req: AuthenticatedRequest, res) => {
       return res.status(404).json({ error: 'File not found or not accessible' });
     }
 
-    // Use DeepSeek to analyze the command
-    const aiAnalysis = await excelDeepSeek.analyzeExcelCommand({
-      command,
-      fileContext,
-      previousCommands: [] // TODO: Add session tracking
-    });
+    // Use ExcelGPT for unlimited Excel operations
+    try {
+      const excelGPTResponse = await processExcelRequest(command, {
+        selectedRange: fileContext?.selectedRange || 'A1',
+        sheetName: fileContext?.sheets?.[0]?.name || 'Sheet1',
+        workbookName: path.basename(filePath),
+        selectionType: 'range',
+        dataSize: {
+          rows: fileContext?.totalRows || 0,
+          columns: fileContext?.totalColumns || 0
+        },
+        selectedData: fileContext?.sampleData || [],
+        hint: `User wants to: ${command}`
+      });
 
-    // Validate operations before execution
-    const operationWarnings = excelDeepSeek.validateOperations(aiAnalysis.operations, fileContext);
-    if (operationWarnings.length > 0) {
-      logger.warn('Operation validation warnings:', operationWarnings);
+      logger.info('ExcelGPT generated actions', {
+        actionCount: excelGPTResponse.actions?.length,
+        confidence: excelGPTResponse.confidence,
+        actions: excelGPTResponse.actions
+      });
+
+      // Return the Excel API actions for the frontend to execute
+      res.json({
+        success: true,
+        result: {
+          success: true,
+          message: excelGPTResponse.message || 'Excel operations ready to execute',
+          operations: excelGPTResponse.actions || [],
+          filePath: filePath,
+          summary: `Generated ${excelGPTResponse.actions?.length || 0} Excel API operations`
+        },
+        excelGPT: {
+          understanding: excelGPTResponse.understanding,
+          actions: excelGPTResponse.actions,
+          confidence: excelGPTResponse.confidence,
+          message: excelGPTResponse.message
+        },
+        message: excelGPTResponse.message || 'Excel operations generated successfully'
+      });
+
+    } catch (error) {
+      logger.error('ExcelGPT processing error:', error);
+      res.status(500).json({
+        error: 'Failed to process Excel command',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
-
-    // Execute the edit
-    const result = await excelAgent.editExcelFile(filePath, command, fileContext, aiAnalysis);
-
-    if (result.success) {
-      // File editing completed successfully
-      // The frontend will handle auto-opening via Electron IPC
-      logger.info(`Excel file edited successfully: ${filePath}`);
-    }
-
-    res.json({
-      success: result.success,
-      result,
-      aiAnalysis: {
-        reasoning: aiAnalysis.reasoning,
-        summary: aiAnalysis.summary,
-        confidence: aiAnalysis.confidence,
-        warnings: [...(aiAnalysis.warnings || []), ...operationWarnings],
-        suggestions: aiAnalysis.suggestions
-      },
-      message: result.message
-    });
 
   } catch (error) {
     logger.error('Error editing Excel file:', error);
     res.status(500).json({
       error: 'Failed to edit Excel file',
-      message: error.message
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
 
-// Interpret vague command endpoint
-router.post('/interpret', auth, async (req: AuthenticatedRequest, res) => {
-  try {
-    const { command, fileContext } = req.body;
-    const userId = req.user?.id;
-
-    if (!userId) {
-      return res.status(401).json({ error: 'User not authenticated' });
-    }
-
-    if (!command) {
-      return res.status(400).json({ error: 'Command is required' });
-    }
-
-    logger.info(`Interpreting vague Excel command for user ${userId}: ${command}`);
-
-    // Use DeepSeek to interpret the vague command
-    const interpretation = await excelDeepSeek.interpretVagueCommand(command, fileContext);
-
-    res.json({
-      success: true,
-      interpretation,
-      message: 'Command interpreted successfully'
-    });
-
-  } catch (error) {
-    logger.error('Error interpreting command:', error);
-    res.status(500).json({
-      error: 'Failed to interpret command',
-      message: error.message
-    });
-  }
-});
+// All command interpretation is now handled by ExcelGPT in the /edit endpoint
 
 // Complex analysis endpoint
 router.post('/analyze-complex', auth, async (req: AuthenticatedRequest, res) => {
@@ -205,7 +179,7 @@ router.post('/analyze-complex', auth, async (req: AuthenticatedRequest, res) => 
     logger.error('Error in complex analysis:', error);
     res.status(500).json({
       error: 'Failed to perform complex analysis',
-      message: error.message
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -235,7 +209,7 @@ router.post('/monitor/start', auth, async (req: AuthenticatedRequest, res) => {
     logger.error('Error starting file monitoring:', error);
     res.status(500).json({
       error: 'Failed to start file monitoring',
-      message: error.message
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -264,7 +238,7 @@ router.post('/monitor/stop', auth, async (req: AuthenticatedRequest, res) => {
     logger.error('Error stopping file monitoring:', error);
     res.status(500).json({
       error: 'Failed to stop file monitoring',
-      message: error.message
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -316,7 +290,7 @@ router.get('/backups/:filePath', auth, async (req: AuthenticatedRequest, res) =>
     logger.error('Error listing backups:', error);
     res.status(500).json({
       error: 'Failed to list backups',
-      message: error.message
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -365,13 +339,13 @@ router.post('/restore', auth, async (req: AuthenticatedRequest, res) => {
     logger.error('Error restoring from backup:', error);
     res.status(500).json({
       error: 'Failed to restore from backup',
-      message: error.message
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
 
 // Health check endpoint
-router.get('/health', (req, res) => {
+router.get('/health', (_req, res) => {
   res.json({
     status: 'healthy',
     service: 'Excel Agent API',

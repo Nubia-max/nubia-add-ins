@@ -574,6 +574,22 @@ executeCommandOnWorksheet(worksheet, cmd, commandType, workbook) {
         this.applyCellStyle(worksheet, cmd);
         break;
 
+      case 'rename_sheet':
+        this.applyRenameSheet(workbook, worksheet, cmd);
+        break;
+
+      case 'copy_sheet':
+        this.applyCopySheet(workbook, worksheet, cmd);
+        break;
+
+      case 'delete_sheet':
+        this.applyDeleteSheet(workbook, worksheet, cmd);
+        break;
+
+      case 'move_sheet':
+        this.applyMoveSheet(workbook, worksheet, cmd);
+        break;
+
       default:
         console.log(`❓ Unhandled command type: ${commandType}`, cmd);
     }
