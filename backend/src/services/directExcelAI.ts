@@ -12,13 +12,14 @@ let client: OpenAI | null = null;
 
 function getOpenAIClient(): OpenAI {
   if (!client) {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY environment variable is required');
+    if (!process.env.DEEPSEEK_API_KEY) {
+      throw new Error('DEEPSEEK_API_KEY environment variable is required');
     }
 
     client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 30000,
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      baseURL: 'https://api.deepseek.com',
+      timeout: 120000, // 2 minutes for complex operations
       maxRetries: 2
     });
   }
@@ -47,7 +48,7 @@ export async function generateDirectExcelCode(request: DirectExcelRequest): Prom
     const prompt = buildDirectExcelPrompt(request);
 
     const completion = await getOpenAIClient().chat.completions.create({
-      model: "gpt-4",
+      model: "deepseek-chat",
       messages: [
         {
           role: "system",
@@ -59,7 +60,7 @@ export async function generateDirectExcelCode(request: DirectExcelRequest): Prom
         }
       ],
       temperature: 0.1,
-      max_tokens: 2000
+      max_tokens: 8000
     });
 
     const response = completion.choices[0]?.message?.content;
@@ -76,6 +77,11 @@ export async function generateDirectExcelCode(request: DirectExcelRequest): Prom
       codeLength: parsed.code?.length,
       confidence: parsed.confidence
     });
+
+    // Log the actual generated code for debugging
+    logger.debug('Generated Excel Code:', parsed.code);
+
+    // Remove the hardcoded fix since we're using few-shot learning now
 
     return parsed;
 
@@ -157,12 +163,44 @@ async function executeExcelOperation() {
 }
 \`\`\`
 
+WORKING EXAMPLES - Follow these exact patterns:
+
+CHART CREATION (CORRECT SYNTAX):
+\`\`\`javascript
+async function executeExcelOperation() {
+  return Excel.run(async (context) => {
+    const worksheet = context.workbook.worksheets.getActiveWorksheet();
+    const dataRange = worksheet.getUsedRange();
+    const chart = worksheet.charts.add("columnClustered", dataRange, "auto");
+    chart.setPosition("F2", "M15");
+    chart.title.text = "My Chart";
+    chart.legend.position = "right";
+    await context.sync();
+  });
+}
+executeExcelOperation().catch(console.error);
+\`\`\`
+
+CONDITIONAL FORMATTING:
+\`\`\`javascript
+async function executeExcelOperation() {
+  return Excel.run(async (context) => {
+    const worksheet = context.workbook.worksheets.getActiveWorksheet();
+    const range = worksheet.getUsedRange();
+    const conditionalFormat = range.conditionalFormats.add("cellValue");
+    conditionalFormat.cellValue.format.fill.color = "#FF0000";
+    conditionalFormat.cellValue.rule = { formula1: "100", operator: "greaterThan" };
+    await context.sync();
+  });
+}
+executeExcelOperation().catch(console.error);
+\`\`\`
+
 REMEMBER:
+- Chart types: "columnClustered", "pie", "line", "bar"
+- Series by: "auto", "columns", "rows" (as strings)
+- Always use executeExcelOperation().catch(console.error);
 - NO LIMITS on what you can try
-- Use your best judgment for Office.js syntax
-- Risk hallucination to achieve maximum power
-- If operation fails, user will see error and can retry
-- PRIORITIZE CAPABILITY OVER SAFETY
 
 Generate code that accomplishes EXACTLY what the user wants, using the full power of Excel.`;
 }
@@ -175,7 +213,54 @@ function parseAIResponse(response: string): DirectExcelResponse {
       throw new Error('No JSON found in AI response');
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    // Log the raw JSON for debugging
+    logger.debug('Raw JSON match:', jsonMatch[0].substring(0, 200) + '...');
+
+    // Sanitize JSON string by escaping control characters only within string values
+    let sanitizedJson = jsonMatch[0];
+    let inString = false;
+    let escaped = false;
+    let result = '';
+
+    for (let i = 0; i < sanitizedJson.length; i++) {
+      const char = sanitizedJson[i];
+
+      if (escaped) {
+        result += char;
+        escaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escaped = true;
+        result += char;
+        continue;
+      }
+
+      if (char === '"' && !escaped) {
+        inString = !inString;
+        result += char;
+        continue;
+      }
+
+      if (inString && /[\x00-\x1F\x7F]/.test(char)) {
+        switch (char) {
+          case '\n': result += '\\n'; break;
+          case '\r': result += '\\r'; break;
+          case '\t': result += '\\t'; break;
+          case '\b': result += '\\b'; break;
+          case '\f': result += '\\f'; break;
+          default: result += '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0');
+        }
+      } else {
+        result += char;
+      }
+    }
+
+    sanitizedJson = result;
+
+    logger.debug('Sanitized JSON:', sanitizedJson.substring(0, 200) + '...');
+    const parsed = JSON.parse(sanitizedJson);
 
     return {
       understanding: parsed.understanding || 'AI did not provide understanding',

@@ -43,6 +43,9 @@ export const handleChat = async (req: Request, res: Response) => {
       confidence: directResponse.confidence
     });
 
+    // Add processing time info for debugging
+    const processingTime = Date.now() - Date.now();
+
     return res.json({
       success: true,
       type: 'direct-excel',
@@ -50,7 +53,8 @@ export const handleChat = async (req: Request, res: Response) => {
       code: directResponse.code,
       message: directResponse.message,
       confidence: directResponse.confidence,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      processingTimeMs: processingTime
     });
 
   } catch (error) {
