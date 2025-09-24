@@ -1,13 +1,13 @@
-# Nubia - Excel Add-in for AI-Powered Automation
+# Nubia
 
-Nubia is an Excel add-in that provides AI-powered automation and assistance directly within Microsoft Excel. Built with Office.js and powered by a Node.js backend with Firebase integration.
+AI-powered Excel automation add-in with real-time chat interface and direct code execution capabilities.
 
-## Architecture
+## Components
 
-- **Add-in Frontend**: Office.js-based Excel add-in (TypeScript/HTML/CSS)
-- **Backend API**: Node.js Express server with Firebase integration
-- **Shared Types**: Common TypeScript definitions
-- **Firebase Functions**: Cloud functions for extended functionality
+- **Excel Add-in**: Office.js frontend with task pane interface
+- **Backend API**: Node.js Express server with DeepSeek AI integration
+- **Direct Code Execution**: AI generates and executes Office.js code in Excel
+- **Multi-worksheet Context**: Full workbook awareness for complex operations
 
 ## Project Structure
 
@@ -28,155 +28,70 @@ Nubia/
 
 ## Getting Started
 
-### Prerequisites
+### Requirements
 
 - Node.js 18+
-- npm 9+
-- Microsoft Excel (for testing)
-- Firebase project setup
+- Microsoft Excel
+- DeepSeek API key
 
-### Installation
+### Setup
 
-1. **Clone and install dependencies:**
+1. **Backend Server:**
    ```bash
-   git clone <repository-url>
-   cd Nubia
+   cd backend
    npm install
+   npm run dev
    ```
 
-2. **Start the backend server:**
-   ```bash
-   npm run dev:backend
-   ```
-
-3. **Start the add-in development server:**
-   ```bash
-   npm run dev:add-in
-   ```
-
-4. **Sideload the add-in in Excel:**
+2. **Excel Add-in:**
    ```bash
    cd add-in
-   npm run sideload
+   npm install
+   npm run dev
    ```
 
-### Development
-
-- **Backend development**: `npm run dev:backend`
-- **Add-in development**: `npm run dev:add-in`
-- **Build all**: `npm run build`
-- **Type checking**: `npm run type-check`
-- **Linting**: `npm run lint`
+3. **Environment Variables:**
+   ```bash
+   # backend/.env
+   DEEPSEEK_API_KEY=your-deepseek-key
+   BACKEND_PORT=3001
+   ```
 
 ## Features
 
-### AI-Powered Chat Interface
-- Natural language interaction with Excel
-- Context-aware responses based on current worksheet
-- Real-time Excel automation
+- **Natural Language Processing**: Chat interface for Excel commands
+- **Real-time Code Generation**: AI creates Office.js code from user requests
+- **Direct Execution**: Generated code runs immediately in Excel
+- **Multi-sheet Operations**: Access to all worksheets and their data
+- **Step-by-step Processing**: Complex tasks broken into manageable steps
+- **Auto-expanding Input**: Responsive textarea for long prompts
 
-### Quick Automation
-- Ribbon button for instant data analysis
-- Smart suggestions based on selected data
-- One-click automation execution
+## API Endpoints
 
-### Excel Integration
-- Direct manipulation of Excel objects via Office.js
-- Formula generation and insertion
-- Data formatting and analysis
-- Chart and pivot table creation
+- `POST /api/chat` - Main chat processing with Excel context
+- `POST /api/chat/stream` - Server-sent events for long operations
+- `GET /api/health` - Service health check
 
-### Authentication & Security
-- Firebase authentication integration
-- Secure API communication
-- Token-based authorization
+## Technical Stack
 
-## Backend API Integration
+- **Frontend**: Office.js, HTML/CSS/JavaScript
+- **Backend**: Node.js, Express, TypeScript
+- **AI Integration**: DeepSeek API for code generation
+- **Development**: Webpack dev server with hot reload
 
-The add-in communicates with the existing Nubia backend API:
+## Key Files
 
-- **Authentication**: `/api/auth/*`
-- **Chat**: `/api/chat/*`
-- **Automation**: `/api/automation/*`
-- **Subscriptions**: `/api/subscription/*`
+- `add-in/src/taskpane/taskpane.js` - Main UI and chat logic
+- `add-in/src/taskpane/unlimitedExecutor.js` - Code execution engine
+- `backend/src/services/directExcelAI.ts` - AI prompt engineering
+- `backend/src/controllers/chatController.ts` - Request handling
+- `add-in/manifest.xml` - Excel add-in configuration
 
-All existing backend functionality remains intact and reusable.
+## How It Works
 
-## Deployment
-
-### Development
-1. Install Office development certificates: `npm run start` (in add-in folder)
-2. Sideload manifest.xml in Excel
-3. Start backend server
-
-### Production
-1. Build add-in: `npm run build`
-2. Deploy to web server (HTTPS required)
-3. Update manifest.xml URLs to production
-4. Submit to Microsoft AppSource or deploy via admin center
-
-## Configuration
-
-### Environment Variables
-```bash
-# Backend (.env)
-FIREBASE_PROJECT_ID=your-project-id
-FIREBASE_PRIVATE_KEY=your-private-key
-BACKEND_PORT=3001
-
-# Add-in (manifest.xml)
-- Update SourceLocation URLs for production
-- Update AppDomain entries
-```
-
-### Manifest Configuration
-Key sections in `manifest.xml`:
-- **SourceLocation**: Points to your hosted add-in
-- **AppDomains**: Allowed domains for the add-in
-- **Permissions**: Excel access permissions
-- **Ribbon buttons**: Custom UI elements
-
-## Key Components
-
-### Task Pane (`taskpane.ts`)
-- Main chat interface
-- Authentication handling
-- Excel context integration
-- Real-time communication with backend
-
-### Commands (`commands.ts`)
-- Ribbon button handlers
-- Quick automation functions
-- Dialog management
-
-### API Integration
-- Axios-based HTTP client
-- Token management
-- Error handling
-- Excel action execution
-
-## Firebase Integration
-
-Existing Firebase services remain fully functional:
-- **Authentication**: User login/registration
-- **Firestore**: Data storage and chat history
-- **Functions**: Server-side processing
-- **Storage**: File uploads and processing
-
-## Office.js APIs Used
-
-- **Excel.run()**: Main Excel context
-- **Worksheet operations**: Data reading/writing
-- **Range manipulation**: Cell selection and formatting
-- **Office.onReady()**: Add-in initialization
-- **UI.displayDialog()**: Modal dialogs
-
-## Support
-
-- **Documentation**: Office.js docs + Firebase docs
-- **Development**: Use Excel Online or Desktop for testing
-- **Debugging**: Browser dev tools + Office Add-in debugging
-
----
-
-**Ready for Excel add-in development!** 🚀
+1. User types natural language command in Excel task pane
+2. Frontend captures Excel context (worksheets, data, selection)
+3. Backend sends context + command to DeepSeek AI
+4. AI generates valid Office.js code
+5. Frontend executes code directly in Excel
+6. Results appear immediately in spreadsheet
