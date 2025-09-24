@@ -119,6 +119,14 @@
             font-size: 14px;
             outline: none;
             transition: border-color 0.2s;
+            resize: none;
+            overflow-y: auto;
+            overflow-x: hidden;
+            min-height: 40px;
+            max-height: 120px;
+            font-family: inherit;
+            line-height: 1.4;
+            word-wrap: break-word;
         }
 
         .chat-input:focus {
@@ -235,13 +243,12 @@
         </div>
 
         <div class="input-container">
-            <input
-                type="text"
+            <textarea
                 id="chatInput"
                 class="chat-input"
                 placeholder="Ask me anything about your Excel data..."
-                maxlength="500"
-            />
+                rows="1"
+            ></textarea>
             <button id="sendButton" class="send-button">Send</button>
         </div>
     </div>

@@ -5,14 +5,28 @@
 
 Office.onReady((info) => {
     if (info.host === Office.HostType.Excel) {
-        document.getElementById('sendButton').addEventListener('click', sendMessage);
-        document.getElementById('chatInput').addEventListener('keypress', (e) => {
+        const chatInput = document.getElementById('chatInput');
+        const sendButton = document.getElementById('sendButton');
+
+        // Auto-expand textarea
+        function autoExpandTextarea() {
+            chatInput.style.height = 'auto';
+            chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+
+        chatInput.addEventListener('input', autoExpandTextarea);
+
+        chatInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 sendMessage();
             }
         });
 
+        // Initial setup
+        autoExpandTextarea();
         updateStatus('Ready');
     }
 });
@@ -395,7 +409,7 @@ function addLoadingIndicator() {
 
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content loading-indicator';
-    contentDiv.innerHTML = 'Starting request...<div class="loading-dots"><span></span><span></span><span></span></div>';
+    contentDiv.innerHTML = 'Mooseying<div class="loading-dots"><span></span><span></span><span></span></div>';
 
     loadingDiv.appendChild(senderDiv);
     loadingDiv.appendChild(contentDiv);
