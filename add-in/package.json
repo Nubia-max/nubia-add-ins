@@ -16,7 +16,9 @@
     "lint": "eslint src --ext .js --fix",
     "test": "echo \"No tests specified\" && exit 0"
   },
-  "dependencies": {},
+  "dependencies": {
+    "firebase": "^12.3.0"
+  },
   "devDependencies": {
     "@types/office-js": "^1.0.374",
     "copy-webpack-plugin": "^12.0.2",

@@ -36,6 +36,11 @@ interface DirectExcelResponse {
   code: string;
   confidence: number;
   message: string;
+  tokensUsed: {
+    input: number;
+    output: number;
+    total: number;
+  };
 }
 
 export async function generateDirectExcelCode(request: DirectExcelRequest): Promise<DirectExcelResponse> {
@@ -69,21 +74,31 @@ export async function generateDirectExcelCode(request: DirectExcelRequest): Prom
       throw new Error('No response from AI');
     }
 
+    // Extract token usage from API response
+    const tokensUsed = {
+      input: completion.usage?.prompt_tokens || 0,
+      output: completion.usage?.completion_tokens || 0,
+      total: completion.usage?.total_tokens || 0
+    };
+
     // Parse the AI response
     const parsed = parseAIResponse(response);
 
     logger.info('🧠 Direct Excel AI Generated Code', {
       understanding: parsed.understanding?.substring(0, 100),
       codeLength: parsed.code?.length,
-      confidence: parsed.confidence
+      confidence: parsed.confidence,
+      tokensUsed: tokensUsed.total
     });
 
     // Log the actual generated code for debugging
     logger.debug('Generated Excel Code:', parsed.code);
 
-    // Remove the hardcoded fix since we're using few-shot learning now
-
-    return parsed;
+    // Add token usage to response
+    return {
+      ...parsed,
+      tokensUsed
+    };
 
   } catch (error) {
     logger.error('Direct Excel AI Error:', error);
@@ -275,7 +290,12 @@ function parseAIResponse(response: string): DirectExcelResponse {
       understanding: parsed.understanding || 'AI did not provide understanding',
       code: parsed.code || '',
       confidence: parsed.confidence || 0.8,
-      message: parsed.message || 'AI will execute the operation'
+      message: parsed.message || 'AI will execute the operation',
+      tokensUsed: {
+        input: 0,
+        output: 0,
+        total: 0
+      }
     };
 
   } catch (error) {
@@ -286,7 +306,12 @@ function parseAIResponse(response: string): DirectExcelResponse {
       understanding: 'Parsing failed, executing raw response',
       code: response,
       confidence: 0.5,
-      message: 'Raw AI response execution'
+      message: 'Raw AI response execution',
+      tokensUsed: {
+        input: 0,
+        output: 0,
+        total: 0
+      }
     };
   }
 }

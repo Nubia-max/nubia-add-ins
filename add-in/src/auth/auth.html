@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Nubia AI Authentication</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+        .logo {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .google-btn {
+            background: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: background-color 0.2s;
+        }
+        .google-btn:hover {
+            background: #3367d6;
+        }
+        .google-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+        .status-loading { background: #e3f2fd; color: #1976d2; }
+        .status-error { background: #ffebee; color: #d32f2f; }
+        .status-success { background: #e8f5e8; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🤖</div>
+        <h1>Nubia AI</h1>
+        <p>Sign in to continue using Nubia</p>
+        <button id="googleSignIn" class="google-btn">
+            <span>G</span> Continue with Google
+        </button>
+        <p style="font-size: 14px; color: #999; margin-top: 20px;">
+            Click to sign in with your Google account
+        </p>
+        <div id="status" class="status-loading">Loading Firebase...</div>
+    </div>
+
+    <!-- Firebase CDN Scripts -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+    <script>
+        console.log('🚀 AUTH: Starting authentication script');
+
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCWuOVIeEpK8XzSlk3hgVZho90kYH31P3c",
+            authDomain: "aibun-ai.firebaseapp.com",
+            projectId: "aibun-ai",
+            storageBucket: "aibun-ai.firebasestorage.app",
+            messagingSenderId: "966194603583",
+            appId: "1:966194603583:web:07c4b19794ad441bc0fa8a"
+        };
+
+        let auth;
+
+        // Initialize Firebase
+        try {
+            console.log('🔥 AUTH: Initializing Firebase...');
+            firebase.initializeApp(firebaseConfig);
+            auth = firebase.auth();
+            console.log('✅ AUTH: Firebase initialized successfully');
+
+            // Check for redirect result when page loads
+            auth.getRedirectResult().then((result) => {
+                if (result.user) {
+                    console.log('✅ AUTH: Redirect sign-in successful:', result.user.email);
+                    handleAuthSuccess(result.user);
+                } else {
+                    console.log('📋 AUTH: No redirect result, showing sign-in UI');
+                    updateStatus('Ready to sign in', 'success');
+                }
+            }).catch((error) => {
+                console.error('❌ AUTH: Redirect result error:', error);
+                updateStatus('Sign-in failed: ' + error.message, 'error');
+            });
+
+        } catch (error) {
+            console.error('❌ AUTH: Firebase initialization failed:', error);
+            updateStatus('Firebase setup failed: ' + error.message, 'error');
+        }
+
+        // Handle successful authentication
+        function handleAuthSuccess(user) {
+            console.log('📧 AUTH: User details:', {
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName,
+                photoURL: user.photoURL
+            });
+
+            updateStatus('Authentication successful!', 'success');
+
+            // Send success message to parent window
+            const userData = {
+                uid: user.uid,
+                displayName: user.displayName,
+                email: user.email,
+                photoURL: user.photoURL
+            };
+
+            console.log('📤 AUTH: Sending auth success to parent window');
+            if (window.opener) {
+                window.opener.postMessage({
+                    type: 'AUTH_SUCCESS',
+                    userData: userData
+                }, '*');
+            }
+
+            // Also store in localStorage as backup
+            localStorage.setItem('nubia_auth_success', 'true');
+            localStorage.setItem('nubia_user_data', JSON.stringify(userData));
+
+            setTimeout(() => {
+                console.log('🚪 AUTH: Closing auth window');
+                window.close();
+            }, 1500);
+        }
+
+        function updateStatus(message, type = 'loading') {
+            const statusEl = document.getElementById('status');
+            if (statusEl) {
+                statusEl.textContent = message;
+                statusEl.className = `status-${type}`;
+                console.log(`📊 AUTH: Status updated - ${message}`);
+            }
+        }
+
+        // Google Sign-In - Try popup first, fallback to redirect
+        async function signInWithGoogle() {
+            try {
+                console.log('🔐 AUTH: Starting Google sign-in...');
+                updateStatus('Signing in with Google...', 'loading');
+
+                const googleBtn = document.getElementById('googleSignIn');
+                if (googleBtn) googleBtn.disabled = true;
+
+                const provider = new firebase.auth.GoogleAuthProvider();
+                provider.addScope('email');
+                provider.addScope('profile');
+
+                try {
+                    // Try popup first
+                    console.log('🌐 AUTH: Attempting popup sign-in...');
+                    const result = await auth.signInWithPopup(provider);
+                    handleAuthSuccess(result.user);
+                } catch (popupError) {
+                    console.log('⚠️ AUTH: Popup failed, trying redirect...', popupError.code);
+
+                    if (popupError.code === 'auth/popup-blocked' ||
+                        popupError.code === 'auth/popup-closed-by-user' ||
+                        popupError.code === 'auth/cancelled-popup-request') {
+
+                        updateStatus('Popup blocked, redirecting to Google...', 'loading');
+                        console.log('🔄 AUTH: Falling back to redirect...');
+                        await auth.signInWithRedirect(provider);
+                        // Note: This will redirect away, so code after this won't execute
+                    } else {
+                        throw popupError; // Re-throw if it's a different error
+                    }
+                }
+
+
+            } catch (error) {
+                console.error('❌ AUTH: Google sign-in failed:', error);
+                updateStatus('Sign-in failed: ' + error.message, 'error');
+
+                const googleBtn = document.getElementById('googleSignIn');
+                if (googleBtn) googleBtn.disabled = false;
+
+                // Send error to parent window
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'AUTH_ERROR',
+                        error: error.message
+                    }, '*');
+                }
+            }
+        }
+
+        // Initialize when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('📋 AUTH: DOM ready, setting up event listeners');
+
+            const googleBtn = document.getElementById('googleSignIn');
+            if (googleBtn) {
+                googleBtn.addEventListener('click', signInWithGoogle);
+                console.log('✅ AUTH: Google sign-in button listener added');
+            } else {
+                console.error('❌ AUTH: Could not find Google sign-in button');
+            }
+        });
+
+        console.log('🎯 AUTH: Script setup completed');
+    </script>
+</body>
+</html>

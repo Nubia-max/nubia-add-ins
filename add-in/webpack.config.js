@@ -66,6 +66,14 @@ module.exports = (env, argv) => {
         }
       }),
 
+      // Add auth page
+      new HtmlWebpackPlugin({
+        filename: 'auth/auth.html',
+        template: './src/auth/auth.html',
+        chunks: [],
+        inject: false
+      }),
+
       // Copy static assets
       new CopyWebpackPlugin({
         patterns: [

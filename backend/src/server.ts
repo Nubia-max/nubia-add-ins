@@ -8,11 +8,21 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 
 import { chatRoutes } from './routes/chat';
+import creditRoutes from './routes/credits';
 import { errorHandler } from './middleware/errorHandler';
 import { setupSocketHandlers } from './utils/socket';
 import { logger } from './utils/logger';
+import { initializeFirebase } from './config/firebase';
+import { authWrapper, creditCheckWrapper } from './middleware/wrappers';
 
 dotenv.config();
+
+// Initialize Firebase
+try {
+  initializeFirebase();
+} catch (error) {
+  logger.error('Failed to initialize Firebase:', error);
+}
 
 const app = express();
 const server = createServer(app);
@@ -94,11 +104,15 @@ app.get('/api/test', (req, res) => {
   });
 });
 
-// API Routes
-app.use('/api/chat', chatRoutes);
+// API Routes with middleware
+// Apply credit checking middleware to chat routes
+app.use('/api/chat', authWrapper, creditCheckWrapper(), chatRoutes);
+
+// Credit management routes
+app.use('/api/credits', authWrapper, creditRoutes);
 
 // 404 handler
-app.use('*', (req, res) => {
+app.use('*', (_req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 

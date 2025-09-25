@@ -2,11 +2,13 @@ import { Request, Response } from 'express';
 import { logger } from '../utils/logger';
 import { generateDirectExcelCode } from '../services/directExcelAI';
 import { contextCache } from '../services/contextCache';
+import SimpleCreditSystem from '../services/creditSystem';
+import { AuthenticatedRequest } from '../middleware/auth';
 
 /**
  * SSE endpoint for streaming complex operations
  */
-export const handleChatStream = async (req: Request, res: Response) => {
+export const handleChatStream = async (req: AuthenticatedRequest, res: Response) => {
   const { message, context, source } = req.body;
 
   // Set SSE headers
@@ -39,15 +41,36 @@ export const handleChatStream = async (req: Request, res: Response) => {
 
     sendEvent('progress', { status: 'Code generated, finalizing...', progress: 90 });
 
-    sendEvent('complete', {
-      success: true,
-      type: 'direct-excel',
-      understanding: directResponse.understanding,
-      code: directResponse.code,
-      message: directResponse.message,
-      confidence: directResponse.confidence,
-      timestamp: new Date().toISOString()
-    });
+    // Deduct credits after successful operation based on actual API token usage
+    const tokensUsed = directResponse.tokensUsed.total;
+    try {
+      const creditResult = await SimpleCreditSystem.deductCredits(
+        req.user?.uid,
+        tokensUsed,
+        message,
+        true
+      );
+
+      sendEvent('complete', {
+        success: true,
+        type: 'direct-excel',
+        understanding: directResponse.understanding,
+        code: directResponse.code,
+        message: directResponse.message,
+        confidence: directResponse.confidence,
+        tokensUsed: tokensUsed,
+        creditsUsed: creditResult.creditsDeducted,
+        remainingCredits: creditResult.remainingCredits,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (creditError) {
+      logger.error('Credit deduction failed:', creditError);
+      sendEvent('error', {
+        success: false,
+        error: 'Credit deduction failed: ' + (creditError as Error).message
+      });
+    }
 
   } catch (error) {
     sendEvent('error', {
@@ -62,7 +85,7 @@ export const handleChatStream = async (req: Request, res: Response) => {
 /**
  * Main chat controller - now redirects all operations to streaming
  */
-export const handleChat = async (req: Request, res: Response) => {
+export const handleChat = async (req: AuthenticatedRequest, res: Response) => {
   const { message, context, source } = req.body;
 
   if (!message) {
@@ -90,6 +113,15 @@ export const handleChat = async (req: Request, res: Response) => {
       confidence: directResponse.confidence
     });
 
+    // Deduct credits after successful operation based on actual API token usage
+    const tokensUsed = directResponse.tokensUsed.total;
+    const creditResult = await SimpleCreditSystem.deductCredits(
+      req.user?.uid,
+      tokensUsed,
+      message,
+      true
+    );
+
     return res.json({
       success: true,
       type: 'direct-excel',
@@ -97,6 +129,9 @@ export const handleChat = async (req: Request, res: Response) => {
       code: directResponse.code,
       message: directResponse.message,
       confidence: directResponse.confidence,
+      tokensUsed: tokensUsed,
+      creditsUsed: creditResult.creditsDeducted,
+      remainingCredits: creditResult.remainingCredits,
       timestamp: new Date().toISOString()
     });
 
@@ -112,7 +147,7 @@ export const handleChat = async (req: Request, res: Response) => {
 /**
  * Test endpoint
  */
-export const testEndpoint = async (req: Request, res: Response) => {
+export const testEndpoint = async (_req: Request, res: Response) => {
   try {
     return res.json({
       success: true,
