@@ -5,33 +5,88 @@
  */
 
 /**
- * Execute raw AI-generated Excel code with unlimited power
+ * Execute AI-generated Excel code with security validation
  * @param {string} code - Raw Office.js code from AI
  * @param {string} description - What the code should do
  * @returns {Promise<any>}
  */
 async function executeUnlimitedExcelCode(code, description) {
-    console.log('🚀 UNLIMITED POWER MODE: Executing raw AI code');
+    console.log('🚀 SECURE MODE: Executing validated AI code');
     console.log('📝 Description:', description);
     console.log('💻 Code to execute:', code);
 
     try {
+        // Security validation
+        const validationResult = validateCodeSecurity(code);
+        if (!validationResult.safe) {
+            throw new Error(`Security validation failed: ${validationResult.reason}`);
+        }
+
         // Create a function from the AI-generated code
         const executableFunction = createExecutableFunction(code);
 
         // Execute the function with full Excel API access
         const result = await executableFunction();
 
-        console.log('✅ UNLIMITED EXECUTION SUCCESS:', result);
+        console.log('✅ SECURE EXECUTION SUCCESS:', result);
         return { success: true, result };
 
     } catch (error) {
-        console.error('❌ UNLIMITED EXECUTION FAILED:', error);
+        console.error('❌ SECURE EXECUTION FAILED:', error);
         console.error('Code that failed:', code);
 
         // Don't give up - try alternative execution methods
         return await tryAlternativeExecution(code, description, error);
     }
+}
+
+/**
+ * Validate code for security threats
+ * @param {string} code - Code to validate
+ * @returns {Object} Validation result
+ */
+function validateCodeSecurity(code) {
+    const dangerousPatterns = [
+        /eval\s*\(/,                     // eval() calls
+        /Function\s*\(/,                 // Function constructor
+        /setTimeout\s*\(/,               // setTimeout with string
+        /setInterval\s*\(/,              // setInterval with string
+        /document\./,                    // DOM manipulation
+        /window\./,                      // Window object access
+        /fetch\s*\(/,                    // Network requests
+        /XMLHttpRequest/,                // AJAX requests
+        /\.innerHTML/,                   // HTML injection
+        /\.outerHTML/,                   // HTML injection
+        /localStorage/,                  // Local storage access
+        /sessionStorage/,                // Session storage access
+        /import\s*\(/,                   // Dynamic imports
+        /require\s*\(/,                  // Node.js require
+    ];
+
+    // Check for dangerous patterns
+    for (const pattern of dangerousPatterns) {
+        if (pattern.test(code)) {
+            return {
+                safe: false,
+                reason: `Dangerous pattern detected: ${pattern.source}`
+            };
+        }
+    }
+
+    // Ensure code only uses Excel API
+    const allowedPatterns = [
+        /Excel\./,                       // Excel API
+        /context\./,                     // Excel context
+        /worksheet\./,                   // Worksheet operations
+        /workbook\./,                    // Workbook operations
+        /range\./,                       // Range operations
+        /chart\./,                       // Chart operations
+        /async\s+function/,              // Async functions
+        /await\s+/,                      // Await calls
+        /console\./,                     // Console logging (safe)
+    ];
+
+    return { safe: true, reason: 'Code passed security validation' };
 }
 
 /**

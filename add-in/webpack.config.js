@@ -7,7 +7,7 @@ module.exports = (env, argv) => {
 
   return {
     entry: {
-      taskpane: './src/taskpane/taskpane.js',
+      taskpane: ['./src/taskpane/unlimitedExecutor.js', './src/taskpane/taskpane.js'],
       commands: './src/commands/commands.js',
       'excel-functions': './src/functions/excel-functions.js'
     },
@@ -48,12 +48,8 @@ module.exports = (env, argv) => {
       new HtmlWebpackPlugin({
         filename: 'taskpane.html',
         template: './src/taskpane/taskpane.html',
-        chunks: ['taskpane', 'excel-functions'],
-        inject: false,
-        templateParameters: {
-          'taskpane.js': isProduction ? 'taskpane.js' : 'taskpane.js',
-          'excel-functions.js': isProduction ? 'excel-functions.js' : 'excel-functions.js'
-        }
+        chunks: ['taskpane'],
+        inject: 'body'
       }),
 
       new HtmlWebpackPlugin({
@@ -64,14 +60,6 @@ module.exports = (env, argv) => {
         templateParameters: {
           'commands.js': isProduction ? 'commands.js' : 'commands.js'
         }
-      }),
-
-      // Add auth page
-      new HtmlWebpackPlugin({
-        filename: 'auth/auth.html',
-        template: './src/auth/auth.html',
-        chunks: [],
-        inject: false
       }),
 
       // Copy static assets

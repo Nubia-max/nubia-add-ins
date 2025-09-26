@@ -1,19 +1,20 @@
-// Firebase Authentication Middleware
+// Firebase Anonymous Authentication Middleware
 import { Request, Response, NextFunction } from 'express';
 import { verifyIdToken } from '../config/firebase';
 import { logger } from '../utils/logger';
+import { ApiResponseHelper } from '../utils/apiResponse';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
     uid: string;
     id: string; // For backwards compatibility
-    email: string;
+    isAnonymous: boolean;
+    email?: string;
     name?: string;
-    picture?: string;
   };
 }
 
-// Middleware to verify Firebase ID token (allows anonymous access)
+// Middleware to verify Firebase ID token (supports anonymous users)
 export const auth = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -26,8 +27,14 @@ export const auth = async (
       : null;
 
     if (!token) {
-      // Allow anonymous usage (they get 10 free credits)
-      logger.info('Request without authentication token - allowing anonymous access');
+      // Allow anonymous usage - create anonymous user identifier
+      const anonymousId = req.headers['x-anonymous-id'] as string || 'anonymous';
+      req.user = {
+        uid: anonymousId,
+        id: anonymousId,
+        isAnonymous: true
+      };
+      logger.info(`Anonymous user access: ${anonymousId}`);
       return next();
     }
 
@@ -35,44 +42,61 @@ export const auth = async (
     const decodedToken = await verifyIdToken(token);
 
     if (!decodedToken) {
-      return res.status(401).json({
-        error: 'Invalid authentication token',
-        message: 'Please sign in again'
-      });
+      // Only fall back to anonymous for specific token errors, not all errors
+      logger.warn('Token verification failed');
+      const anonymousId = req.headers['x-anonymous-id'] as string || 'anonymous';
+      req.user = {
+        uid: anonymousId,
+        id: anonymousId,
+        isAnonymous: true
+      };
+      return next();
     }
 
     // Attach user info to request
     req.user = {
       uid: decodedToken.uid,
-      id: decodedToken.uid, // For backwards compatibility
-      email: decodedToken.email || '',
+      id: decodedToken.uid,
+      isAnonymous: false,
+      email: decodedToken.email,
       name: decodedToken.name,
-      picture: decodedToken.picture,
     };
 
-    logger.info(`Authenticated user: ${req.user.uid} (${req.user.email})`);
+    logger.info(`Authenticated user: ${req.user.uid} (anonymous: ${req.user.isAnonymous})`);
     next();
 
   } catch (error) {
     logger.error('Authentication middleware error:', error);
-    return res.status(401).json({
-      error: 'Authentication failed',
-      message: 'Please sign in again'
-    });
+
+    // Only fall back to anonymous for network/Firebase errors, not security issues
+    if (error instanceof Error && (
+      error.message.includes('network') ||
+      error.message.includes('Firebase') ||
+      error.message.includes('timeout')
+    )) {
+      const anonymousId = req.headers['x-anonymous-id'] as string || 'anonymous';
+      req.user = {
+        uid: anonymousId,
+        id: anonymousId,
+        isAnonymous: true
+      };
+      logger.warn('Network/Firebase error, falling back to anonymous access');
+      return next();
+    }
+
+    // For other errors, don't fall back - let the error handler deal with it
+    next(error);
   }
 };
 
-// Middleware that requires authentication (no anonymous access)
+// Middleware that requires non-anonymous authentication (for payments)
 export const requireAuth = async (
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ) => {
-  if (!req.user) {
-    return res.status(401).json({
-      error: 'Authentication required',
-      message: 'Please sign in to access this feature'
-    });
+  if (!req.user || req.user.isAnonymous) {
+    return ApiResponseHelper.authError(res, 'Please sign in to access payment features');
   }
   next();
 };

@@ -185,28 +185,29 @@ export class SimpleCreditSystem {
       throw new Error(`Insufficient credits. Required: ${creditsToDeduct}, Available: ${userAccount.credits}`);
     }
 
-    // Deduct credits
-    userAccount.credits -= creditsToDeduct;
-    userAccount.totalUsed += creditsToDeduct;
-    userAccount.lastUsed = new Date();
-
     const id = userId || 'anonymous';
+    const oldCredits = userAccount.credits;
 
-    // Update cache
-    userCreditsCache.set(id, userAccount);
-
-    // Update Firestore
+    // Update Firestore first for data consistency
     try {
       const firestoreDB = getDB();
       if (firestoreDB) {
         await firestoreDB.collection(COLLECTIONS.CREDITS).doc(id).update({
-        credits: userAccount.credits,
-        totalUsed: userAccount.totalUsed,
-        lastUsed: admin.firestore.Timestamp.fromDate(userAccount.lastUsed)
+          credits: oldCredits - creditsToDeduct,
+          totalUsed: userAccount.totalUsed + creditsToDeduct,
+          lastUsed: admin.firestore.Timestamp.fromDate(new Date())
         });
       }
+
+      // Only update cache after successful database update
+      userAccount.credits -= creditsToDeduct;
+      userAccount.totalUsed += creditsToDeduct;
+      userAccount.lastUsed = new Date();
+      userCreditsCache.set(id, userAccount);
+
     } catch (error) {
-      logger.error('Failed to update Firestore, using cache only:', error);
+      logger.error('Failed to update Firestore credit deduction:', error);
+      throw new Error('Failed to deduct credits - database update failed');
     }
 
     // Record transaction
@@ -229,13 +230,17 @@ export class SimpleCreditSystem {
     };
   }
 
-  // Purchase credits (requires authentication)
-  static async purchaseCredits(
+  // Initialize credit purchase with Paystack
+  static async initiateCreditPurchase(
     userId: string,
-    amountUSD: number,
-    _paymentDetails?: any
-  ): Promise<{ success: boolean; creditsPurchased: number; newBalance: number; transactionId?: string }> {
-
+    email: string,
+    amountUSD: number
+  ): Promise<{
+    success: boolean;
+    paymentUrl?: string;
+    reference?: string;
+    message?: string;
+  }> {
     if (!userId || userId === 'anonymous') {
       throw new Error('Must be logged in to purchase credits');
     }
@@ -245,53 +250,127 @@ export class SimpleCreditSystem {
       throw new Error(`Purchase amount must be between $${MIN_PURCHASE} and $${MAX_PURCHASE}`);
     }
 
-    const creditsToPurchase = amountUSD * CREDITS_PER_DOLLAR;
-
-    // TODO: Process payment with Stripe
-    // const paymentResult = await processStripePayment(amountUSD, paymentDetails);
-    // if (!paymentResult.success) throw new Error('Payment failed');
-
-    const userAccount = await this.getUserCredits(userId);
-
-    // Add credits
-    userAccount.credits += creditsToPurchase;
-    userAccount.totalPurchased += creditsToPurchase;
-
-    // Update cache
-    userCreditsCache.set(userId, userAccount);
-
-    // Update Firestore
     try {
-      const firestoreDB = getDB();
-      if (firestoreDB) {
-        await firestoreDB.collection(COLLECTIONS.CREDITS).doc(userId).update({
-        credits: userAccount.credits,
-        totalPurchased: userAccount.totalPurchased
-        });
+      const PaystackService = (await import('./paystack')).default;
+      const reference = PaystackService.generateReference(userId);
+      const amountInKobo = PaystackService.usdToNaira(amountUSD);
+
+      const result = await PaystackService.initializeTransaction({
+        reference,
+        amount: amountInKobo,
+        email,
+        currency: 'NGN',
+        callback_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-callback`,
+        metadata: {
+          userId,
+          creditsToAdd: amountUSD * CREDITS_PER_DOLLAR,
+          amountUSD
+        }
+      });
+
+      if (result.status) {
+        logger.info(`[CREDITS] Payment initiated for user ${userId}: ${reference}`);
+        return {
+          success: true,
+          paymentUrl: result.data.authorization_url,
+          reference: result.data.reference
+        };
+      } else {
+        return {
+          success: false,
+          message: result.message || 'Payment initialization failed'
+        };
       }
     } catch (error) {
-      logger.error('Failed to update Firestore after purchase:', error);
+      logger.error('Credit purchase initiation error:', error);
+      return {
+        success: false,
+        message: 'Payment service unavailable'
+      };
     }
+  }
 
-    // Record transaction
-    const transactionId = `txn_${Date.now()}`;
-    await this.recordTransaction({
-      userId,
-      type: 'purchase',
-      credits: creditsToPurchase,
-      amount: amountUSD,
-      timestamp: new Date(),
-      success: true
-    });
+  // Complete credit purchase after Paystack verification
+  static async completeCreditPurchase(
+    reference: string
+  ): Promise<{ success: boolean; creditsPurchased: number; newBalance: number; message?: string }> {
+    try {
+      const PaystackService = (await import('./paystack')).default;
+      const verification = await PaystackService.verifyTransaction(reference);
 
-    logger.info(`[CREDITS] User ${userId} purchased ${creditsToPurchase} credits for $${amountUSD}`);
+      if (!verification.status) {
+        return {
+          success: false,
+          creditsPurchased: 0,
+          newBalance: 0,
+          message: 'Payment verification failed'
+        };
+      }
 
-    return {
-      success: true,
-      creditsPurchased: creditsToPurchase,
-      newBalance: userAccount.credits,
-      transactionId
-    };
+      const transactionData = verification.data;
+      if (transactionData.status !== 'success') {
+        return {
+          success: false,
+          creditsPurchased: 0,
+          newBalance: 0,
+          message: 'Payment was not successful'
+        };
+      }
+
+      const metadata = transactionData.metadata;
+      const userId = metadata.userId;
+      const creditsToAdd = metadata.creditsToAdd;
+      const amountUSD = metadata.amountUSD;
+
+      const userAccount = await this.getUserCredits(userId);
+
+      // Add credits
+      userAccount.credits += creditsToAdd;
+      userAccount.totalPurchased += creditsToAdd;
+
+      // Update cache
+      userCreditsCache.set(userId, userAccount);
+
+      // Update Firestore
+      try {
+        const firestoreDB = getDB();
+        if (firestoreDB) {
+          await firestoreDB.collection(COLLECTIONS.CREDITS).doc(userId).update({
+            credits: userAccount.credits,
+            totalPurchased: userAccount.totalPurchased
+          });
+        }
+      } catch (error) {
+        logger.error('Failed to update Firestore after purchase:', error);
+      }
+
+      // Record transaction
+      await this.recordTransaction({
+        userId,
+        type: 'purchase',
+        credits: creditsToAdd,
+        amount: amountUSD,
+        timestamp: new Date(),
+        success: true
+      });
+
+      logger.info(`[CREDITS] User ${userId} purchased ${creditsToAdd} credits for $${amountUSD}`);
+
+      return {
+        success: true,
+        creditsPurchased: creditsToAdd,
+        newBalance: userAccount.credits
+      };
+
+    } catch (error) {
+      logger.error('Credit purchase completion error:', error);
+      return {
+        success: false,
+        creditsPurchased: 0,
+        newBalance: 0,
+        message: 'Failed to complete purchase'
+      };
+    }
   }
 
   // Get user's credit balance and stats
@@ -357,26 +436,16 @@ export class SimpleCreditSystem {
     }
   }
 
-  // Estimate credits needed for a command
+  // Simple estimation for pre-request validation (conservative estimate)
   static estimateCreditsForCommand(command: string): number {
-    // Simple estimation based on command length and complexity
-    const baseTokens = Math.max(2000, command.length * 3); // Minimum 2000 tokens
+    // Conservative estimate: assume 1-2 credits per request for validation
+    // Actual deduction will be based on real token usage from AI response
+    return Math.max(1, Math.min(2, Math.ceil(command.length / 500)));
+  }
 
-    // Add complexity multipliers
-    let multiplier = 1;
-
-    if (command.toLowerCase().includes('comprehensive') || command.toLowerCase().includes('detailed')) {
-      multiplier += 0.5;
-    }
-    if (command.toLowerCase().includes('dashboard') || command.toLowerCase().includes('analysis')) {
-      multiplier += 0.3;
-    }
-    if (command.toLowerCase().includes('multiple') || command.toLowerCase().includes('several')) {
-      multiplier += 0.4;
-    }
-
-    const estimatedTokens = Math.round(baseTokens * multiplier);
-    return Math.ceil(estimatedTokens / TOKENS_PER_CREDIT);
+  // Convert actual AI token usage to credits and deduct from user balance
+  static convertTokensToCredits(tokensUsed: number): number {
+    return Math.ceil(tokensUsed / TOKENS_PER_CREDIT);
   }
 
   // Transfer anonymous credits to logged-in user

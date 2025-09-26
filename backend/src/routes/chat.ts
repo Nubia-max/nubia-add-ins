@@ -7,12 +7,12 @@ const router = Router();
 
 // Main chat endpoint for Excel GPT
 router.post('/', [
-  body('message').notEmpty().withMessage('Message is required')
+  body('userCommand').notEmpty().withMessage('User command is required')
 ], validateRequest, handleChat);
 
 // SSE streaming endpoint for complex operations
 router.post('/stream', [
-  body('message').notEmpty().withMessage('Message is required')
+  body('userCommand').notEmpty().withMessage('User command is required')
 ], validateRequest, handleChatStream);
 
 // Test endpoint

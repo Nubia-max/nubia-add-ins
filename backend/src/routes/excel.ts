@@ -4,14 +4,7 @@ import { auth } from '../middleware/auth';
 
 const router = Router();
 
-interface AuthenticatedRequest extends Request {
-  user?: {
-    id: string;
-    email: string;
-  };
-}
-
-router.post('/process-transactions', auth, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/process-transactions', auth, async (req: Request, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -48,7 +41,7 @@ router.post('/process-transactions', auth, async (req: AuthenticatedRequest, res
   }
 });
 
-router.post('/generate-formulas', auth, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/generate-formulas', auth, async (req: Request, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -85,7 +78,7 @@ router.post('/generate-formulas', auth, async (req: AuthenticatedRequest, res: R
   }
 });
 
-router.get('/usage-stats', auth, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/usage-stats', auth, async (req: Request, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -109,7 +102,7 @@ router.get('/usage-stats', auth, async (req: AuthenticatedRequest, res: Response
   }
 });
 
-router.post('/generate-excel', auth, async (req: AuthenticatedRequest, res: Response) => {
+router.post('/generate-excel', auth, async (req: Request, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });

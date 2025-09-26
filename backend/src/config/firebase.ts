@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 
 // Initialize Firebase Admin SDK
 let firebaseApp: admin.app.App;
+let firebaseHealthy = false;
 
 export const initializeFirebase = () => {
   try {
@@ -28,6 +29,10 @@ export const initializeFirebase = () => {
     });
 
     logger.info('Firebase Admin SDK initialized successfully');
+
+    // Test Firebase connection
+    testFirebaseConnection();
+
     return firebaseApp;
 
   } catch (error) {
@@ -41,15 +46,54 @@ export const initializeFirebase = () => {
   }
 };
 
-// Get Firestore instance
+// Test Firebase connection health
+const testFirebaseConnection = async (): Promise<void> => {
+  try {
+    // Test Firestore connectivity
+    const firestore = getFirestore();
+    await firestore.collection('_health_check').doc('test').get();
+
+    // Test Auth connectivity
+    const auth = getAuth();
+    await auth.listUsers(1); // Just get 1 user to test auth
+
+    firebaseHealthy = true;
+    logger.info('Firebase health check passed');
+
+  } catch (error) {
+    firebaseHealthy = false;
+    logger.warn('Firebase health check failed:', error);
+    logger.warn('Firebase services may be degraded - falling back to local storage where possible');
+  }
+};
+
+// Check Firebase health status
+export const isFirebaseHealthy = (): boolean => {
+  return firebaseHealthy;
+};
+
+// Enhanced Firestore getter with health checking
 export const getFirestore = () => {
   if (!firebaseApp) {
     initializeFirebase();
   }
-  return admin.firestore();
+
+  const firestore = admin.firestore();
+
+  // Configure Firestore settings for better reliability
+  try {
+    firestore.settings({
+      ignoreUndefinedProperties: true,
+      timestampsInSnapshots: true
+    });
+  } catch (error) {
+    // Settings may already be configured, ignore
+  }
+
+  return firestore;
 };
 
-// Get Firebase Auth instance
+// Enhanced Auth getter
 export const getAuth = () => {
   if (!firebaseApp) {
     initializeFirebase();
@@ -57,18 +101,33 @@ export const getAuth = () => {
   return admin.auth();
 };
 
-// Verify Firebase ID token
+// Enhanced token verification with better error handling
 export const verifyIdToken = async (idToken: string): Promise<admin.auth.DecodedIdToken | null> => {
   try {
-    const decodedToken = await getAuth().verifyIdToken(idToken);
+    if (!firebaseHealthy) {
+      logger.warn('Firebase unhealthy, skipping token verification');
+      return null;
+    }
+
+    const decodedToken = await getAuth().verifyIdToken(idToken, true); // Check revocation
     return decodedToken;
+
   } catch (error) {
-    logger.error('Token verification failed:', error);
+    if (error instanceof Error) {
+      if (error.message.includes('Firebase ID token has expired')) {
+        logger.warn('Token expired:', error.message);
+      } else if (error.message.includes('Firebase ID token has been revoked')) {
+        logger.warn('Token revoked:', error.message);
+      } else if (error.message.includes('Firebase ID token has invalid signature')) {
+        logger.warn('Invalid token signature:', error.message);
+      } else {
+        logger.error('Token verification failed:', error);
+      }
+    }
     return null;
   }
 };
 
-// Firestore collections
 export const COLLECTIONS = {
   USERS: 'users',
   CREDITS: 'user_credits',
@@ -76,4 +135,4 @@ export const COLLECTIONS = {
   USAGE: 'usage_logs'
 };
 
-export default { initializeFirebase, getFirestore, getAuth, verifyIdToken };
+export default { initializeFirebase, getFirestore, getAuth, verifyIdToken, isFirebaseHealthy };

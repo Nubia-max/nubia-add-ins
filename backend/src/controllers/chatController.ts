@@ -4,6 +4,7 @@ import { generateDirectExcelCode } from '../services/directExcelAI';
 import { contextCache } from '../services/contextCache';
 import SimpleCreditSystem from '../services/creditSystem';
 import { AuthenticatedRequest } from '../middleware/auth';
+import { ApiResponseHelper } from '../utils/apiResponse';
 
 /**
  * SSE endpoint for streaming complex operations
@@ -86,24 +87,22 @@ export const handleChatStream = async (req: AuthenticatedRequest, res: Response)
  * Main chat controller - now redirects all operations to streaming
  */
 export const handleChat = async (req: AuthenticatedRequest, res: Response) => {
-  const { message, context, source } = req.body;
+  const { userCommand, message, context, source } = req.body;
+  const command = userCommand || message; // Support both field names for compatibility
 
-  if (!message) {
-    return res.status(400).json({
-      success: false,
-      error: 'Message is required'
-    });
+  if (!command) {
+    return ApiResponseHelper.validationError(res, [], 'User command is required');
   }
 
   try {
-    logger.info(`Processing chat from ${source || 'unknown'}: ${message.substring(0, 100)}...`);
+    logger.info(`Processing chat from ${source || 'unknown'}: ${command.substring(0, 100)}...`);
 
     const sessionId = req.headers['x-session-id'] as string || 'default';
     const enhancedContext = contextCache.enhanceContext(context || {});
     contextCache.cacheContext(sessionId, enhancedContext);
 
     const directResponse = await generateDirectExcelCode({
-      userCommand: message,
+      userCommand: command,
       excelContext: enhancedContext
     });
 
@@ -118,12 +117,11 @@ export const handleChat = async (req: AuthenticatedRequest, res: Response) => {
     const creditResult = await SimpleCreditSystem.deductCredits(
       req.user?.uid,
       tokensUsed,
-      message,
+      command,
       true
     );
 
-    return res.json({
-      success: true,
+    return ApiResponseHelper.success(res, {
       type: 'direct-excel',
       understanding: directResponse.understanding,
       code: directResponse.code,
@@ -131,16 +129,12 @@ export const handleChat = async (req: AuthenticatedRequest, res: Response) => {
       confidence: directResponse.confidence,
       tokensUsed: tokensUsed,
       creditsUsed: creditResult.creditsDeducted,
-      remainingCredits: creditResult.remainingCredits,
-      timestamp: new Date().toISOString()
-    });
+      remainingCredits: creditResult.remainingCredits
+    }, 'Excel operation completed successfully');
 
   } catch (error) {
     logger.error('Chat controller error:', error);
-    return res.status(500).json({
-      success: false,
-      error: (error as Error).message
-    });
+    return ApiResponseHelper.serverError(res, (error as Error).message);
   }
 };
 
@@ -149,16 +143,10 @@ export const handleChat = async (req: AuthenticatedRequest, res: Response) => {
  */
 export const testEndpoint = async (_req: Request, res: Response) => {
   try {
-    return res.json({
-      success: true,
-      message: 'Nubia Excel Add-in backend is running!',
-      timestamp: new Date().toISOString(),
+    return ApiResponseHelper.success(res, {
       version: 'Excel Add-in v2.0 with Excel GPT'
-    });
+    }, 'Nubia Excel Add-in backend is running!');
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      error: (error as Error).message
-    });
+    return ApiResponseHelper.serverError(res, (error as Error).message);
   }
 };
