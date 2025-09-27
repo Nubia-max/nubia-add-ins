@@ -26,12 +26,12 @@ export interface CreditTransaction {
   success: boolean;
 }
 
-// Credit pricing: $2 = 200 credits, so $1 = 100 credits
-export const CREDITS_PER_DOLLAR = 100;
+// Credit pricing: ₦3000 = 200 credits, so ₦15 = 1 credit, ₦1500 = 100 credits
+export const CREDITS_PER_DOLLAR = 100; // Keep for legacy calculations
 export const TOKENS_PER_CREDIT = 1000;
 export const FREE_CREDITS = 10; // Free credits for all users
-export const MIN_PURCHASE = 2; // Minimum $2
-export const MAX_PURCHASE = 100; // Maximum $100
+export const MIN_PURCHASE = 3000; // Minimum ₦3,000 (~$2)
+export const MAX_PURCHASE = 150000; // Maximum ₦150,000 (~$100)
 
 // In-memory cache for performance (synced with Firestore)
 const userCreditsCache: Map<string, UserCredits> = new Map();
@@ -50,7 +50,10 @@ export class SimpleCreditSystem {
 
   // Get or create user credits
   static async getUserCredits(userId?: string): Promise<UserCredits> {
-    const id = userId || 'anonymous';
+    if (!userId) {
+      throw new Error('User ID is required - anonymous users must have Firebase UID');
+    }
+    const id = userId;
 
     // Check cache first
     if (userCreditsCache.has(id)) {
@@ -234,37 +237,43 @@ export class SimpleCreditSystem {
   static async initiateCreditPurchase(
     userId: string,
     email: string,
-    amountUSD: number
+    amount: number,
+    currency: string = 'NGN'
   ): Promise<{
     success: boolean;
     paymentUrl?: string;
     reference?: string;
     message?: string;
   }> {
-    if (!userId || userId === 'anonymous') {
-      throw new Error('Must be logged in to purchase credits');
+    if (!userId) {
+      throw new Error('User ID is required');
     }
 
-    // Validate purchase amount
-    if (amountUSD < MIN_PURCHASE || amountUSD > MAX_PURCHASE) {
-      throw new Error(`Purchase amount must be between $${MIN_PURCHASE} and $${MAX_PURCHASE}`);
+    // Validate purchase amount (for now, use USD equivalent validation)
+    if (amount < MIN_PURCHASE || amount > MAX_PURCHASE) {
+      throw new Error(`Purchase amount must be between ${MIN_PURCHASE} and ${MAX_PURCHASE} ${currency}`);
     }
 
     try {
       const PaystackService = (await import('./paystack')).default;
       const reference = PaystackService.generateReference(userId);
-      const amountInKobo = PaystackService.usdToNaira(amountUSD);
+      // Convert amount to subunits (multiply by 100 for all currencies)
+      const amountInSubunits = Math.round(amount * 100);
+
+      // Calculate credits based on NGN amount (₦3000 = 200 credits)
+      const creditsToAdd = Math.round((amount / 3000) * 200);
 
       const result = await PaystackService.initializeTransaction({
         reference,
-        amount: amountInKobo,
+        amount: amountInSubunits,
         email,
-        currency: 'NGN',
-        callback_url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-callback`,
+        currency: currency.toUpperCase(),
+        callback_url: `${process.env.BACKEND_URL || 'http://localhost:3001'}/api/credits/payment-callback`,
         metadata: {
           userId,
-          creditsToAdd: amountUSD * CREDITS_PER_DOLLAR,
-          amountUSD
+          creditsToAdd,
+          originalAmount: amount,
+          originalCurrency: currency
         }
       });
 
@@ -320,7 +329,8 @@ export class SimpleCreditSystem {
       const metadata = transactionData.metadata;
       const userId = metadata.userId;
       const creditsToAdd = metadata.creditsToAdd;
-      const amountUSD = metadata.amountUSD;
+      const originalAmount = metadata.originalAmount;
+      const originalCurrency = metadata.originalCurrency;
 
       const userAccount = await this.getUserCredits(userId);
 
@@ -349,12 +359,12 @@ export class SimpleCreditSystem {
         userId,
         type: 'purchase',
         credits: creditsToAdd,
-        amount: amountUSD,
+        amount: originalAmount,
         timestamp: new Date(),
         success: true
       });
 
-      logger.info(`[CREDITS] User ${userId} purchased ${creditsToAdd} credits for $${amountUSD}`);
+      logger.info(`[CREDITS] User ${userId} purchased ${creditsToAdd} credits for ${originalAmount} ${originalCurrency}`);
 
       return {
         success: true,
@@ -499,6 +509,19 @@ export class SimpleCreditSystem {
       logger.error('Failed to record transaction to Firestore:', error);
       // Continue execution even if transaction logging fails
     }
+  }
+
+  // Clear cache for a specific user (useful for debugging)
+  static clearUserCache(userId?: string): void {
+    const id = userId || 'anonymous';
+    userCreditsCache.delete(id);
+    logger.info(`[CREDITS] Cache cleared for user: ${id}`);
+  }
+
+  // Clear all cache (useful for debugging)
+  static clearAllCache(): void {
+    userCreditsCache.clear();
+    logger.info('[CREDITS] All cache cleared');
   }
 
   // Get pricing info for UI

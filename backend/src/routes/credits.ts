@@ -1,6 +1,6 @@
 // Credit Management API Routes
 import express, { Router } from 'express';
-import { AuthenticatedRequest, requireAuth } from '../middleware/auth';
+import { AuthenticatedRequest, requireAuth, auth } from '../middleware/auth';
 import SimpleCreditSystem from '../services/creditSystem';
 import { logger } from '../utils/logger';
 import { ApiResponseHelper } from '../utils/apiResponse';
@@ -21,22 +21,23 @@ router.get('/balance', async (req: AuthenticatedRequest, res) => {
   }
 });
 
-// Initialize credit purchase with Paystack (requires authentication)
-router.post('/purchase/init', requireAuth, async (req: AuthenticatedRequest, res) => {
+// Initialize credit purchase with Paystack (supports anonymous users)
+router.post('/purchase/init', auth, async (req: AuthenticatedRequest, res) => {
   try {
-    const userId = req.user!.uid;
-    const email = req.user!.email;
-    const { amount } = req.body;
+    const userId = req.user?.uid || 'anonymous';
+    const email = req.user?.email || `${userId}@anonymous.nubia.app`;
+    const { amount, currency = 'NGN' } = req.body;
 
     if (!amount || typeof amount !== 'number') {
       return ApiResponseHelper.validationError(res, [], 'Amount must be a number');
     }
 
-    if (!email) {
-      return ApiResponseHelper.validationError(res, [], 'Email address is required for payment');
+    // Only NGN supported for unregistered business accounts
+    if (currency && currency !== 'NGN') {
+      return ApiResponseHelper.validationError(res, [], 'Only NGN currency is supported. International customers can pay in USD and their bank will convert to NGN.');
     }
 
-    const result = await SimpleCreditSystem.initiateCreditPurchase(userId, email, amount);
+    const result = await SimpleCreditSystem.initiateCreditPurchase(userId, email, amount, currency);
 
     if (result.success) {
       return ApiResponseHelper.success(res, result, 'Payment initiated successfully');
@@ -51,7 +52,7 @@ router.post('/purchase/init', requireAuth, async (req: AuthenticatedRequest, res
 });
 
 // Complete credit purchase after payment verification
-router.post('/purchase/complete', requireAuth, async (req: AuthenticatedRequest, res) => {
+router.post('/purchase/complete', auth, async (req: AuthenticatedRequest, res) => {
   try {
     const { reference } = req.body;
 
@@ -74,7 +75,7 @@ router.post('/purchase/complete', requireAuth, async (req: AuthenticatedRequest,
 });
 
 // Get pricing information
-router.get('/pricing', async (req, res) => {
+router.get('/pricing', async (_req, res) => {
   try {
     const pricing = SimpleCreditSystem.getPricingInfo();
 
@@ -108,6 +109,7 @@ router.post('/estimate', async (req, res) => {
   }
 });
 
+
 // Transfer anonymous credits when user signs in
 router.post('/transfer-anonymous', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
@@ -123,6 +125,65 @@ router.post('/transfer-anonymous', requireAuth, async (req: AuthenticatedRequest
     logger.error('Error transferring anonymous credits:', error);
     return ApiResponseHelper.serverError(res, 'Failed to transfer credits');
   }
+});
+
+// Payment success callback page
+router.get('/payment-callback', async (req, res) => {
+  const { trxref, reference } = req.query;
+
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Payment Successful - Nubia</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          max-width: 600px;
+          margin: 50px auto;
+          padding: 20px;
+          text-align: center;
+          background: #f5f5f5;
+        }
+        .success-box {
+          background: white;
+          padding: 40px;
+          border-radius: 10px;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .success-icon { font-size: 60px; color: #28a745; margin-bottom: 20px; }
+        .success-title { color: #28a745; font-size: 24px; margin-bottom: 15px; }
+        .success-message { color: #666; margin-bottom: 30px; line-height: 1.6; }
+        .close-btn {
+          background: #007ACC;
+          color: white;
+          border: none;
+          padding: 12px 30px;
+          border-radius: 5px;
+          cursor: pointer;
+          font-size: 16px;
+        }
+        .close-btn:hover { background: #005a9e; }
+      </style>
+    </head>
+    <body>
+      <div class="success-box">
+        <div class="success-icon">✅</div>
+        <h1 class="success-title">Payment Successful!</h1>
+        <p class="success-message">
+          Your payment has been processed successfully.<br>
+          Credits will be added to your account automatically within a few minutes.<br>
+          <small>Reference: ${reference || trxref || 'N/A'}</small>
+        </p>
+        <button class="close-btn" onclick="window.close()">Close Window</button>
+      </div>
+      <script>
+        // Auto-close after 10 seconds
+        setTimeout(() => window.close(), 10000);
+      </script>
+    </body>
+    </html>
+  `);
 });
 
 // Paystack webhook for payment notifications
@@ -161,6 +222,24 @@ router.post('/webhook/paystack', async (req, res) => {
   } catch (error) {
     logger.error('Paystack webhook error:', error);
     res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+// Debug endpoint to clear cache
+router.post('/debug/clear-cache', async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (userId) {
+      SimpleCreditSystem.clearUserCache(userId);
+      return ApiResponseHelper.success(res, { cleared: userId }, `Cache cleared for user: ${userId}`);
+    } else {
+      SimpleCreditSystem.clearAllCache();
+      return ApiResponseHelper.success(res, { cleared: 'all' }, 'All cache cleared');
+    }
+  } catch (error) {
+    logger.error('Error clearing cache:', error);
+    return ApiResponseHelper.serverError(res, 'Failed to clear cache');
   }
 });
 

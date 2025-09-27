@@ -449,14 +449,17 @@
             </div>
             <div class="payment-form">
                 <div class="form-group">
-                    <label class="form-label">Select Amount (USD)</label>
+                    <label class="form-label">Select Amount (NGN)</label>
                     <select id="credit-amount" class="form-select">
-                        <option value="2">$2 - 200 Credits</option>
-                        <option value="5">$5 - 500 Credits</option>
-                        <option value="10">$10 - 1000 Credits</option>
-                        <option value="25">$25 - 2500 Credits</option>
-                        <option value="50">$50 - 5000 Credits</option>
+                        <option value="3000">₦3,000 - 200 Credits (~$2)</option>
+                        <option value="7500">₦7,500 - 500 Credits (~$5)</option>
+                        <option value="15000">₦15,000 - 1000 Credits (~$10)</option>
+                        <option value="37500">₦37,500 - 2500 Credits (~$25)</option>
+                        <option value="75000">₦75,000 - 5000 Credits (~$50)</option>
                     </select>
+                </div>
+                <div class="payment-info" style="background: #e3f2fd; border: 1px solid #1976d2; border-radius: 4px; padding: 12px; margin: 12px 0; font-size: 14px;">
+                    <strong>💳 International Payment:</strong> Foreign cards are accepted! Your bank will automatically convert USD/EUR/etc. to NGN at current exchange rates.
                 </div>
                 <div class="payment-buttons">
                     <button id="close-payment-modal" class="cancel-btn">Cancel</button>

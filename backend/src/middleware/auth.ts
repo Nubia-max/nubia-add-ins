@@ -27,8 +27,11 @@ export const auth = async (
       : null;
 
     if (!token) {
-      // Allow anonymous usage - create anonymous user identifier
-      const anonymousId = req.headers['x-anonymous-id'] as string || 'anonymous';
+      // Require anonymous ID header for anonymous users
+      const anonymousId = req.headers['x-anonymous-id'] as string;
+      if (!anonymousId || anonymousId === 'anonymous') {
+        return ApiResponseHelper.authError(res, 'Firebase anonymous authentication required');
+      }
       req.user = {
         uid: anonymousId,
         id: anonymousId,
@@ -53,11 +56,18 @@ export const auth = async (
       return next();
     }
 
+    // Check if user is Firebase anonymous user
+    const isFirebaseAnonymous = !decodedToken.firebase.identities ||
+      Object.keys(decodedToken.firebase.identities).length === 0 ||
+      (decodedToken.firebase.identities.email === undefined &&
+       decodedToken.firebase.identities.phone === undefined &&
+       decodedToken.firebase.identities.google === undefined);
+
     // Attach user info to request
     req.user = {
       uid: decodedToken.uid,
       id: decodedToken.uid,
-      isAnonymous: false,
+      isAnonymous: isFirebaseAnonymous,
       email: decodedToken.email,
       name: decodedToken.name,
     };
