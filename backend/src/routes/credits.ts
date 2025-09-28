@@ -28,7 +28,7 @@ router.get('/balance', async (req: AuthenticatedRequest, res) => {
 router.post('/purchase/init', auth, async (req: AuthenticatedRequest, res) => {
   try {
     const userId = req.user?.uid || 'anonymous';
-    const email = req.user?.email || `${userId}@anonymous.nubia.app`;
+    const email = req.user?.email || `${userId}@anonymous.moose.app`;
     const { amount, currency = 'NGN' } = req.body;
 
     if (!amount || typeof amount !== 'number') {
@@ -138,7 +138,7 @@ publicCreditRoutes.get('/payment-callback', async (req, res) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Payment Successful - Nubia</title>
+      <title>Payment Successful - Moose</title>
       <style>
         body {
           font-family: Arial, sans-serif;

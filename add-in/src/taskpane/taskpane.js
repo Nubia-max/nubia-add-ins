@@ -1,9 +1,9 @@
 /*
- * Nubia Excel Add-in - Taskpane
+ * Moose Excel Add-in - Taskpane
  * With Firebase Anonymous Authentication and Credit System
  */
 
-console.log('🚀 Starting Nubia Add-in with Anonymous Auth');
+console.log('🚀 Starting Moose Add-in with Anonymous Auth');
 
 // Import unlimited executor functions
 // This is a hack to include the unlimitedExecutor.js content inline
@@ -405,7 +405,7 @@ function addMessage(sender, content) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${sender}`;
     messageDiv.innerHTML = `
-        <div class="message-sender">${sender === 'user' ? 'You' : 'Nubia'}</div>
+        <div class="message-sender">${sender === 'user' ? 'You' : 'Moose'}</div>
         <div class="message-content">${escapeHtml(content)}</div>
     `;
 
@@ -439,7 +439,7 @@ function addLoadingMessage() {
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
     messageDiv.innerHTML = `
-        <div class="message-sender">Nubia</div>
+        <div class="message-sender">Moose</div>
         <div class="message-content">
             <div class="loading-indicator">
                 <span>Thinking</span>
@@ -565,7 +565,7 @@ async function clearAllAuthData() {
 
 // Initialize the add-in
 async function initializeTaskpane() {
-    console.log('🚀 Initializing Nubia Taskpane');
+    console.log('🚀 Initializing Moose Taskpane');
 
     try {
         // Setup Firebase anonymous authentication

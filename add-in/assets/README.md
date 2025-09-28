@@ -12,7 +12,7 @@ Place your add-in icons here:
 - PNG format
 - Transparent background
 - Clear, simple design
-- Represents Nubia AI branding
+- Represents Moose AI branding
 
 ## Placeholder Icons
 

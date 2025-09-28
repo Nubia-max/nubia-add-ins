@@ -5,7 +5,7 @@ export * from './constants/index';
 
 // Re-export commonly used types with aliases for convenience
 export type {
-  User as NubiaUser,
+  User as MooseUser,
   Message as ChatMessage,
   AutomationTask as Task,
   TaskRequest as ExecuteTaskRequest,

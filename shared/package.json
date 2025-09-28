@@ -1,7 +1,7 @@
 {
-  "name": "nubia-shared",
+  "name": "moose-shared",
   "version": "1.0.0",
-  "description": "Shared configurations and types for Nubia monorepo",
+  "description": "Shared configurations and types for Moose monorepo",
   "main": "index.js",
   "scripts": {
     "build": "tsc",

@@ -71,7 +71,7 @@ export const validatePaymentReference = [
     .withMessage('Payment reference is required')
     .isString()
     .withMessage('Reference must be a string')
-    .matches(/^nubia_[a-zA-Z0-9_]+$/)
+    .matches(/^moose_[a-zA-Z0-9_]+$/)
     .withMessage('Invalid payment reference format'),
 
   handleValidationErrors

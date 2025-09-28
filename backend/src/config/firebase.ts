@@ -1,4 +1,4 @@
-// Firebase Configuration for Nubia
+// Firebase Configuration for Moose
 import admin from 'firebase-admin';
 import { logger } from '../utils/logger';
 

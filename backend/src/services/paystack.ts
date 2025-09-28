@@ -114,7 +114,7 @@ export class PaystackService {
 
   // Generate a unique transaction reference
   static generateReference(userId: string): string {
-    return `nubia_${userId}_${Date.now()}`;
+    return `moose_${userId}_${Date.now()}`;
   }
 
   // Validate webhook signature (for security)

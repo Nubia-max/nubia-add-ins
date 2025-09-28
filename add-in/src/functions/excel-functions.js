@@ -1,5 +1,5 @@
 /**
- * Nubia Excel Functions
+ * Moose Excel Functions
  * Core Excel integration functions for reading/writing data
  */
 
@@ -264,7 +264,7 @@ async function demonstrateReadFunction() {
 }
 
 // Export functions for use by other modules
-window.NubiaExcelFunctions = {
+window.MooseExcelFunctions = {
     readWorksheetValues,
     writeToCell,
     getCurrentSelection,
@@ -279,6 +279,6 @@ window.NubiaExcelFunctions = {
 // Example usage for testing
 if (typeof Office !== 'undefined') {
     Office.onReady(() => {
-        console.log('Nubia Excel Functions loaded and ready');
+        console.log('Moose Excel Functions loaded and ready');
     });
 }

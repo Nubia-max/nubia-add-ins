@@ -1,8 +1,8 @@
-# Nubia Excel Add-in - Production Deployment Guide
+# Moose Excel Add-in - Production Deployment Guide
 
 ## Overview
 
-This guide covers deploying Nubia Excel Add-in with Firebase Anonymous Authentication and Paystack payment integration to production.
+This guide covers deploying Moose Excel Add-in with Firebase Anonymous Authentication and Paystack payment integration to production.
 
 ## Features Implemented
 
@@ -247,4 +247,4 @@ Track these KPIs:
 - Command success rate
 - Response time metrics
 
-Your Nubia Excel Add-in is now ready for production! 🚀
+Your Moose Excel Add-in is now ready for production! 🚀

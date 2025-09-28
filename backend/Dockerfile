@@ -42,13 +42,13 @@ RUN mkdir -p logs
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nubia -u 1001
+    adduser -S moose -u 1001
 
 # Change ownership of app directory
-RUN chown -R nubia:nodejs /app
+RUN chown -R moose:nodejs /app
 
 # Switch to non-root user
-USER nubia
+USER moose
 
 # Expose port
 EXPOSE 3001

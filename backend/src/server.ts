@@ -123,7 +123,7 @@ app.get('/api/health', (_req, res) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    service: 'Nubia Excel Add-in API',
+    service: 'Moose Excel Add-in API',
     version: '2.0.0',
     features: ['anonymous_auth', 'paystack_payments', 'credit_system']
   });
@@ -132,7 +132,7 @@ app.get('/api/health', (_req, res) => {
 // Test route
 app.get('/api/test', (_req, res) => {
   res.json({
-    message: 'Nubia Excel Add-in API is working!',
+    message: 'Moose Excel Add-in API is working!',
     timestamp: new Date().toISOString(),
     service: 'Excel Add-in Backend',
     environment: process.env.NODE_ENV || 'development'
@@ -189,7 +189,7 @@ server.keepAliveTimeout = 61000; // 61 seconds (must be > proxy timeout)
 server.headersTimeout = 62000; // 62 seconds (must be > keepAliveTimeout)
 
 server.listen(Number(PORT), '0.0.0.0', () => {
-  logger.info(`🚀 Nubia Excel Add-in Server running on http://localhost:${PORT}`);
+  logger.info(`🚀 Moose Excel Add-in Server running on http://localhost:${PORT}`);
   logger.info(`📡 API available at http://localhost:${PORT}/api`);
   logger.info(`🌐 Also accessible via network IP on port ${PORT}`);
   logger.info(`📊 Service: Excel Add-in Backend`);

@@ -1,7 +1,7 @@
 {
-  "name": "nubia-excel-addin",
+  "name": "moose-excel-addin",
   "version": "1.0.0",
-  "description": "Nubia Excel Add-in - AI-powered Excel automation and assistance",
+  "description": "Moose Excel Add-in - AI-powered Excel automation and assistance",
   "main": "dist/taskpane.js",
   "scripts": {
     "start": "npm run dev",
@@ -45,12 +45,12 @@
     "office-addin",
     "ai",
     "automation",
-    "nubia"
+    "moose"
   ],
-  "author": "Nubia Team",
+  "author": "Moose Team",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nubia/excel-addin"
+    "url": "https://github.com/moose/excel-addin"
   }
 }

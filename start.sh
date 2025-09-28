@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🚀 Starting Nubia Excel Add-in..."
+echo "🚀 Starting Moose Excel Add-in..."
 
 # Start backend server
 echo "📡 Starting backend server on port 3001..."
@@ -22,7 +22,7 @@ sleep 5
 echo "📊 Loading add-in in Excel..."
 cd add-in && npx office-addin-dev-settings sideload manifest.xml
 
-echo "✅ Nubia is running!"
+echo "✅ Moose is running!"
 echo "Backend PID: $BACKEND_PID"
 echo "Add-in PID: $ADDIN_PID"
 echo ""

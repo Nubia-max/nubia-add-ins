@@ -145,7 +145,7 @@ export const testEndpoint = async (_req: Request, res: Response) => {
   try {
     return ApiResponseHelper.success(res, {
       version: 'Excel Add-in v2.0 with Excel GPT'
-    }, 'Nubia Excel Add-in backend is running!');
+    }, 'Moose Excel Add-in backend is running!');
   } catch (error) {
     return ApiResponseHelper.serverError(res, (error as Error).message);
   }

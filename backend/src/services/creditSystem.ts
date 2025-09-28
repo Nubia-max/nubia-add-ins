@@ -1,4 +1,4 @@
-// Simple Credit System for Nubia
+// Simple Credit System for Moose
 // Users buy credits directly: $2 = 200 credits, 1 credit = 1000 tokens
 
 import { getFirestore, COLLECTIONS } from '../config/firebase';

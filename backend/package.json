@@ -1,7 +1,7 @@
 {
-  "name": "nubia-backend",
+  "name": "moose-backend",
   "version": "1.0.0",
-  "description": "Nubia Backend API",
+  "description": "Moose Backend API",
   "main": "index.js",
   "scripts": {
     "dev": "nodemon",

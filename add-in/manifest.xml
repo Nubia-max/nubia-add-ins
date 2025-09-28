@@ -8,9 +8,9 @@
   <!-- Basic Add-in Information -->
   <Id>a13c8d07-8374-4598-8be6-9a1c0a8c9d07</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>Nubia Team</ProviderName>
+  <ProviderName>Moose Team</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Nubia - AI Excel Assistant"/>
+  <DisplayName DefaultValue="Moose - AI Excel Assistant"/>
   <Description DefaultValue="AI-powered Excel automation and chat assistant"/>
 
   <!-- Icons (using placeholder URLs) -->
@@ -56,20 +56,20 @@
           <!-- Ribbon Extensions -->
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <OfficeTab id="TabHome">
-              <Group id="NubiaGroup">
-                <Label resid="NubiaGroup.Label"/>
+              <Group id="MooseGroup">
+                <Label resid="MooseGroup.Label"/>
                 <Icon>
                   <bt:Image size="16" resid="Icon.16x16"/>
                   <bt:Image size="32" resid="Icon.32x32"/>
                   <bt:Image size="80" resid="Icon.80x80"/>
                 </Icon>
 
-                <!-- Open Nubia Taskpane Button -->
-                <Control xsi:type="Button" id="OpenNubiaButton">
-                  <Label resid="OpenNubiaButton.Label"/>
+                <!-- Open Moose Taskpane Button -->
+                <Control xsi:type="Button" id="OpenMooseButton">
+                  <Label resid="OpenMooseButton.Label"/>
                   <Supertip>
-                    <Title resid="OpenNubiaButton.Label"/>
-                    <Description resid="OpenNubiaButton.Tooltip"/>
+                    <Title resid="OpenMooseButton.Label"/>
+                    <Description resid="OpenMooseButton.Tooltip"/>
                   </Supertip>
                   <Icon>
                     <bt:Image size="16" resid="Icon.16x16"/>
@@ -77,7 +77,7 @@
                     <bt:Image size="80" resid="Icon.80x80"/>
                   </Icon>
                   <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>NubiaTaskpane</TaskpaneId>
+                    <TaskpaneId>MooseTaskpane</TaskpaneId>
                     <SourceLocation resid="Taskpane.Url"/>
                   </Action>
                 </Control>
@@ -118,14 +118,14 @@
         <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Get started with Nubia!"/>
-        <bt:String id="NubiaGroup.Label" DefaultValue="Nubia AI"/>
-        <bt:String id="OpenNubiaButton.Label" DefaultValue="Open Nubia"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Get started with Moose!"/>
+        <bt:String id="MooseGroup.Label" DefaultValue="Moose AI"/>
+        <bt:String id="OpenMooseButton.Label" DefaultValue="Open Moose"/>
         <bt:String id="QuickAnalysisButton.Label" DefaultValue="Quick Analysis"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Nubia helps you automate Excel with AI assistance."/>
-        <bt:String id="OpenNubiaButton.Tooltip" DefaultValue="Open Nubia AI assistant taskpane"/>
+        <bt:String id="GetStarted.Description" DefaultValue="Moose helps you automate Excel with AI assistance."/>
+        <bt:String id="OpenMooseButton.Tooltip" DefaultValue="Open Moose AI assistant taskpane"/>
         <bt:String id="QuickAnalysisButton.Tooltip" DefaultValue="Quick AI analysis of selected data"/>
       </bt:LongStrings>
     </Resources>

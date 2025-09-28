@@ -1,5 +1,5 @@
 /**
- * Nubia Excel Commands
+ * Moose Excel Commands
  * Functions triggered by ribbon buttons
  */
 
@@ -156,7 +156,7 @@ function showDialog(title, content) {
  * Initialize commands when Office is ready
  */
 Office.onReady(() => {
-    console.log('Nubia commands loaded and ready');
+    console.log('Moose commands loaded and ready');
 });
 
 // Register functions globally so Office can call them

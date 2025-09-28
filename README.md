@@ -1,4 +1,4 @@
-# Nubia
+# Moose
 
 AI-powered Excel automation add-in with real-time chat interface and direct code execution capabilities.
 
@@ -12,7 +12,7 @@ AI-powered Excel automation add-in with real-time chat interface and direct code
 ## Project Structure
 
 ```
-Nubia/
+Moose/
 ├── add-in/                     # Excel add-in (Office.js)
 │   ├── src/
 │   │   ├── taskpane/          # Main task pane UI

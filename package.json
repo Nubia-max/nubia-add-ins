@@ -1,7 +1,7 @@
 {
-  "name": "nubia-office-addin",
+  "name": "moose-office-addin",
   "version": "1.0.0",
-  "description": "Nubia - Excel Add-in for AI-Powered Automation",
+  "description": "Moose - Excel Add-in for AI-Powered Automation",
   "private": true,
   "workspaces": [
     "add-in",

@@ -2,11 +2,11 @@
 
 // Application metadata
 export const APP_CONFIG = {
-  NAME: 'Nubia',
+  NAME: 'Moose',
   VERSION: '1.0.0',
   DESCRIPTION: 'Excel Automation Assistant',
-  AUTHOR: 'Nubia Team',
-  HOMEPAGE: 'https://github.com/nubia-team/nubia',
+  AUTHOR: 'Moose Team',
+  HOMEPAGE: 'https://github.com/moose-team/moose',
 } as const;
 
 // UI Constants
@@ -25,10 +25,10 @@ export const UI_CONSTANTS = {
 
 // Storage keys
 export const STORAGE_KEYS = {
-  USER_SETTINGS: 'nubia-settings',
-  CHAT_HISTORY: 'nubia-chat-history',
-  LAST_POSITION: 'nubia-position',
-  THEME: 'nubia-theme',
+  USER_SETTINGS: 'moose-settings',
+  CHAT_HISTORY: 'moose-chat-history',
+  LAST_POSITION: 'moose-position',
+  THEME: 'moose-theme',
 } as const;
 
 // Message limits and validation

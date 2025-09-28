@@ -1,4 +1,4 @@
-# Nubia Excel Add-in
+# Moose Excel Add-in
 
 AI-powered Excel automation and assistance add-in built with Office.js.
 
@@ -7,7 +7,7 @@ AI-powered Excel automation and assistance add-in built with Office.js.
 - **AI Chat Interface**: Natural language interaction with Excel data
 - **Excel Integration**: Read/write cells, format ranges, create charts
 - **Quick Analysis**: Ribbon button for instant AI insights
-- **Backend Integration**: Connects to Nubia backend API for LLM processing
+- **Backend Integration**: Connects to Moose backend API for LLM processing
 
 ## Project Structure
 
@@ -35,7 +35,7 @@ add-in/
 
 - Node.js 16+
 - Excel (Desktop or Online)
-- Nubia backend running on localhost:3001
+- Moose backend running on localhost:3001
 
 ### Installation
 
@@ -76,7 +76,7 @@ add-in/
 
 ### Chat Interface
 
-1. Click "Open Nubia" in Excel ribbon
+1. Click "Open Moose" in Excel ribbon
 2. Type questions about your Excel data
 3. Get AI-powered responses and automation
 
@@ -99,7 +99,7 @@ The add-in provides these core functions:
 
 ## Backend Integration
 
-The add-in communicates with the Nubia backend with rich Excel context:
+The add-in communicates with the Moose backend with rich Excel context:
 
 - **Endpoint**: `POST /api/chat`
 - **Payload**: Enhanced context including sheet data and surrounding information
@@ -187,7 +187,7 @@ Key manifest settings:
 - **ID**: `12345678-1234-5678-9012-123456789abc`
 - **Host**: Excel Workbook
 - **Permissions**: ReadWriteDocument
-- **Source**: https://localhost:3000 (dev) / https://nubia.ai (prod)
+- **Source**: https://localhost:3000 (dev) / https://moose.ai (prod)
 
 ## Deployment
 
@@ -229,14 +229,14 @@ Key manifest settings:
 
 ### Taskpane Functions
 
-- `NubiaTaskpane.addMessage(sender, content)`
-- `NubiaTaskpane.getExcelContext()`
-- `NubiaTaskpane.executeExcelActions(actions)`
+- `MooseTaskpane.addMessage(sender, content)`
+- `MooseTaskpane.getExcelContext()`
+- `MooseTaskpane.executeExcelActions(actions)`
 
 ### Excel Functions
 
-- `NubiaExcelFunctions.setSampleValue()` - Demo: Set A4 to 500
-- `NubiaExcelFunctions.demonstrateReadFunction()` - Demo: Read selection
+- `MooseExcelFunctions.setSampleValue()` - Demo: Set A4 to 500
+- `MooseExcelFunctions.demonstrateReadFunction()` - Demo: Read selection
 
 ---
 
