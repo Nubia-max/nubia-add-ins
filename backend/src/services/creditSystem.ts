@@ -68,6 +68,10 @@ export class SimpleCreditSystem {
 
         if (userDoc.exists) {
           const userData = userDoc.data() as UserCredits;
+          // Ensure numeric data types
+          userData.credits = Number(userData.credits) || 0;
+          userData.totalPurchased = Number(userData.totalPurchased) || 0;
+          userData.totalUsed = Number(userData.totalUsed) || 0;
           userCreditsCache.set(id, userData);
           return userData;
         }
@@ -191,6 +195,10 @@ export class SimpleCreditSystem {
       }
 
       const userData = userDoc.data() as UserCredits;
+      // Ensure numeric data types
+      userData.credits = Number(userData.credits) || 0;
+      userData.totalPurchased = Number(userData.totalPurchased) || 0;
+      userData.totalUsed = Number(userData.totalUsed) || 0;
       userCreditsCache.set(userId, userData);
       return userData;
 
@@ -408,9 +416,9 @@ export class SimpleCreditSystem {
       // For webhook calls, we need to get user data directly without user auth
       const userAccount = await this.getUserCreditsDirectly(userId);
 
-      // Add credits
-      userAccount.credits += creditsToAdd;
-      userAccount.totalPurchased += creditsToAdd;
+      // Add credits (ensure numeric operations)
+      userAccount.credits = Number(userAccount.credits) + Number(creditsToAdd);
+      userAccount.totalPurchased = Number(userAccount.totalPurchased) + Number(creditsToAdd);
 
       // Update cache
       userCreditsCache.set(userId, userAccount);
@@ -420,8 +428,8 @@ export class SimpleCreditSystem {
         const firestoreDB = getDB();
         if (firestoreDB) {
           await firestoreDB.collection(COLLECTIONS.CREDITS).doc(userId).update({
-            credits: userAccount.credits,
-            totalPurchased: userAccount.totalPurchased
+            credits: Number(userAccount.credits),
+            totalPurchased: Number(userAccount.totalPurchased)
           });
         }
       } catch (error) {
@@ -432,8 +440,8 @@ export class SimpleCreditSystem {
       await this.recordTransaction({
         userId,
         type: 'purchase',
-        credits: creditsToAdd,
-        amount: originalAmount,
+        credits: Number(creditsToAdd),
+        amount: Number(originalAmount),
         timestamp: new Date(),
         success: true
       });
@@ -474,12 +482,12 @@ export class SimpleCreditSystem {
       const firestoreDB = getDB();
       if (!firestoreDB) {
         return {
-          credits: userAccount.credits,
+          credits: Number(userAccount.credits) || 0,
           isAnonymous: userAccount.isAnonymous,
-          totalPurchased: userAccount.totalPurchased,
-          totalUsed: userAccount.totalUsed,
+          totalPurchased: Number(userAccount.totalPurchased) || 0,
+          totalUsed: Number(userAccount.totalUsed) || 0,
           recentTransactions: [],
-          freeCreditsRemaining: userAccount.isAnonymous ? userAccount.credits : undefined
+          freeCreditsRemaining: userAccount.isAnonymous ? Number(userAccount.credits) || 0 : undefined
         };
       }
 
@@ -498,24 +506,24 @@ export class SimpleCreditSystem {
       });
 
       return {
-        credits: userAccount.credits,
+        credits: Number(userAccount.credits) || 0,
         isAnonymous: userAccount.isAnonymous,
-        totalPurchased: userAccount.totalPurchased,
-        totalUsed: userAccount.totalUsed,
+        totalPurchased: Number(userAccount.totalPurchased) || 0,
+        totalUsed: Number(userAccount.totalUsed) || 0,
         recentTransactions,
-        freeCreditsRemaining: userAccount.isAnonymous ? userAccount.credits : undefined
+        freeCreditsRemaining: userAccount.isAnonymous ? Number(userAccount.credits) || 0 : undefined
       };
     } catch (error) {
       logger.error('Failed to load recent transactions:', error);
 
       // Fallback without transactions
       return {
-        credits: userAccount.credits,
+        credits: Number(userAccount.credits) || 0,
         isAnonymous: userAccount.isAnonymous,
-        totalPurchased: userAccount.totalPurchased,
-        totalUsed: userAccount.totalUsed,
+        totalPurchased: Number(userAccount.totalPurchased) || 0,
+        totalUsed: Number(userAccount.totalUsed) || 0,
         recentTransactions: [],
-        freeCreditsRemaining: userAccount.isAnonymous ? userAccount.credits : undefined
+        freeCreditsRemaining: userAccount.isAnonymous ? Number(userAccount.credits) || 0 : undefined
       };
     }
   }
