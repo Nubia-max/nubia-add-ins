@@ -29,7 +29,7 @@ export const auth = async (
     if (!token) {
       // Require anonymous ID header for anonymous users
       const anonymousId = req.headers['x-anonymous-id'] as string;
-      if (!anonymousId || anonymousId === 'anonymous') {
+      if (!anonymousId || anonymousId.trim() === '') {
         return ApiResponseHelper.authError(res, 'Firebase anonymous authentication required');
       }
       req.user = {
@@ -47,13 +47,17 @@ export const auth = async (
     if (!decodedToken) {
       // Only fall back to anonymous for specific token errors, not all errors
       logger.warn('Token verification failed');
-      const anonymousId = req.headers['x-anonymous-id'] as string || 'anonymous';
-      req.user = {
-        uid: anonymousId,
-        id: anonymousId,
-        isAnonymous: true
-      };
-      return next();
+      const anonymousId = req.headers['x-anonymous-id'] as string;
+      if (anonymousId && anonymousId.trim() !== '') {
+        req.user = {
+          uid: anonymousId,
+          id: anonymousId,
+          isAnonymous: true
+        };
+        return next();
+      }
+      // No valid anonymous ID, require proper authentication
+      return ApiResponseHelper.authError(res, 'Invalid or expired token, please re-authenticate');
     }
 
     // Check if user is Firebase anonymous user
@@ -84,14 +88,16 @@ export const auth = async (
       error.message.includes('Firebase') ||
       error.message.includes('timeout')
     )) {
-      const anonymousId = req.headers['x-anonymous-id'] as string || 'anonymous';
-      req.user = {
-        uid: anonymousId,
-        id: anonymousId,
-        isAnonymous: true
-      };
-      logger.warn('Network/Firebase error, falling back to anonymous access');
-      return next();
+      const anonymousId = req.headers['x-anonymous-id'] as string;
+      if (anonymousId && anonymousId.trim() !== '') {
+        req.user = {
+          uid: anonymousId,
+          id: anonymousId,
+          isAnonymous: true
+        };
+        logger.warn('Network/Firebase error, falling back to anonymous access');
+        return next();
+      }
     }
 
     // For other errors, don't fall back - let the error handler deal with it

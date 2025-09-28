@@ -7,6 +7,9 @@ import { ApiResponseHelper } from '../utils/apiResponse';
 
 const router: Router = express.Router();
 
+// Create separate router for public routes (webhooks, callbacks)
+export const publicCreditRoutes: Router = express.Router();
+
 // Get user's credit balance (works for anonymous and logged-in users)
 router.get('/balance', async (req: AuthenticatedRequest, res) => {
   try {
@@ -51,8 +54,8 @@ router.post('/purchase/init', auth, async (req: AuthenticatedRequest, res) => {
   }
 });
 
-// Complete credit purchase after payment verification
-router.post('/purchase/complete', auth, async (req: AuthenticatedRequest, res) => {
+// Complete credit purchase after payment verification (PUBLIC ROUTE for webhooks)
+publicCreditRoutes.post('/purchase/complete', async (req, res) => {
   try {
     const { reference } = req.body;
 
@@ -127,8 +130,8 @@ router.post('/transfer-anonymous', requireAuth, async (req: AuthenticatedRequest
   }
 });
 
-// Payment success callback page
-router.get('/payment-callback', async (req, res) => {
+// Payment success callback page (PUBLIC ROUTE)
+publicCreditRoutes.get('/payment-callback', async (req, res) => {
   const { trxref, reference } = req.query;
 
   res.send(`
@@ -186,8 +189,8 @@ router.get('/payment-callback', async (req, res) => {
   `);
 });
 
-// Paystack webhook for payment notifications
-router.post('/webhook/paystack', async (req, res) => {
+// Paystack webhook for payment notifications (PUBLIC ROUTE)
+publicCreditRoutes.post('/webhook/paystack', async (req, res) => {
   try {
     const PaystackService = (await import('../services/paystack')).default;
 

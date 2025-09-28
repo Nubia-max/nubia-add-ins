@@ -14,18 +14,18 @@ export const initializeFirebase = () => {
     }
 
     // Validate required environment variables
-    if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
+    if (!process.env.PROJECT_ID || !process.env.CLIENT_EMAIL || !process.env.PRIVATE_KEY) {
       throw new Error('Missing required Firebase environment variables');
     }
 
     // Initialize with environment variables
     firebaseApp = admin.initializeApp({
       credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        projectId: process.env.PROJECT_ID,
+        clientEmail: process.env.CLIENT_EMAIL,
+        privateKey: process.env.PRIVATE_KEY?.replace(/\\n/g, '\n'),
       }),
-      projectId: process.env.FIREBASE_PROJECT_ID,
+      projectId: process.env.PROJECT_ID,
     });
 
     logger.info('Firebase Admin SDK initialized successfully');
@@ -38,9 +38,9 @@ export const initializeFirebase = () => {
   } catch (error) {
     logger.error('Failed to initialize Firebase:', error);
     logger.error('Environment variables check:', {
-      projectId: !!process.env.FIREBASE_PROJECT_ID,
-      clientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: !!process.env.FIREBASE_PRIVATE_KEY
+      projectId: !!process.env.PROJECT_ID,
+      clientEmail: !!process.env.CLIENT_EMAIL,
+      privateKey: !!process.env.PRIVATE_KEY
     });
     throw new Error('Firebase initialization failed');
   }

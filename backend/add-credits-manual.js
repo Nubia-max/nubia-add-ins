@@ -17,7 +17,7 @@ const db = admin.firestore();
 
 async function addCredits() {
   try {
-    const userId = 'anonymous';  // Switch to anonymous user
+    const userId = 'zAPy8SWqqaTmrOCDieE23wPGlf63';  // Your Firebase anonymous user
     const creditsToAdd = 200;
 
     console.log('Adding 200 credits to anonymous user (current Excel user)');

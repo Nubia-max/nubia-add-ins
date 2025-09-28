@@ -48,8 +48,8 @@ function getDB() {
 
 export class SimpleCreditSystem {
 
-  // Get or create user credits
-  static async getUserCredits(userId?: string): Promise<UserCredits> {
+  // Get or create user credits (works with both user auth and admin access)
+  static async getUserCredits(userId?: string, useAdminSDK: boolean = false): Promise<UserCredits> {
     if (!userId) {
       throw new Error('User ID is required - anonymous users must have Firebase UID');
     }
@@ -73,57 +73,130 @@ export class SimpleCreditSystem {
         }
       }
 
-      // Create new user with free credits
-      const newUser: UserCredits = {
-        userId: id,
-        credits: FREE_CREDITS,
-        isAnonymous: id === 'anonymous',
-        createdAt: new Date(),
-        lastUsed: new Date(),
-        totalPurchased: 0,
-        totalUsed: 0
-      };
+      // Create new user with free credits (only if not using admin SDK for external calls)
+      if (!useAdminSDK) {
+        const newUser: UserCredits = {
+          userId: id,
+          credits: FREE_CREDITS,
+          isAnonymous: id === 'anonymous',
+          createdAt: new Date(),
+          lastUsed: new Date(),
+          totalPurchased: 0,
+          totalUsed: 0
+        };
 
-      // Save to Firestore
-      const firestoreInstance2 = getDB();
-      if (firestoreInstance2) {
-        await firestoreInstance2.collection(COLLECTIONS.CREDITS).doc(id).set({
-          ...newUser,
-          createdAt: admin.firestore.Timestamp.fromDate(newUser.createdAt),
-          lastUsed: admin.firestore.Timestamp.fromDate(newUser.lastUsed)
+        // Save to Firestore
+        const firestoreInstance2 = getDB();
+        if (firestoreInstance2) {
+          await firestoreInstance2.collection(COLLECTIONS.CREDITS).doc(id).set({
+            ...newUser,
+            createdAt: admin.firestore.Timestamp.fromDate(newUser.createdAt),
+            lastUsed: admin.firestore.Timestamp.fromDate(newUser.lastUsed)
+          });
+        }
+
+        userCreditsCache.set(id, newUser);
+
+        // Log free credits transaction
+        await this.recordTransaction({
+          userId: id,
+          type: 'free_credits',
+          credits: FREE_CREDITS,
+          timestamp: new Date(),
+          success: true
         });
+
+        logger.info(`[CREDITS] New user ${id} created with ${FREE_CREDITS} free credits`);
+        return newUser;
+      } else {
+        // For admin SDK calls, return a minimal user record if not found
+        throw new Error(`User ${id} not found - cannot create new user via admin SDK`);
       }
-
-      userCreditsCache.set(id, newUser);
-
-      // Log free credits transaction
-      await this.recordTransaction({
-        userId: id,
-        type: 'free_credits',
-        credits: FREE_CREDITS,
-        timestamp: new Date(),
-        success: true
-      });
-
-      logger.info(`[CREDITS] New user ${id} created with ${FREE_CREDITS} free credits`);
-      return newUser;
 
     } catch (error) {
       logger.error('Error accessing Firestore, using cache:', error);
 
-      // Fallback to cache/memory if Firestore fails
-      const fallbackUser: UserCredits = {
-        userId: id,
-        credits: FREE_CREDITS,
-        isAnonymous: id === 'anonymous',
-        createdAt: new Date(),
-        lastUsed: new Date(),
-        totalPurchased: 0,
-        totalUsed: 0
-      };
+      // Only use fallback for non-admin SDK calls
+      if (!useAdminSDK) {
+        const fallbackUser: UserCredits = {
+          userId: id,
+          credits: FREE_CREDITS,
+          isAnonymous: id === 'anonymous',
+          createdAt: new Date(),
+          lastUsed: new Date(),
+          totalPurchased: 0,
+          totalUsed: 0
+        };
 
-      userCreditsCache.set(id, fallbackUser);
-      return fallbackUser;
+        userCreditsCache.set(id, fallbackUser);
+        return fallbackUser;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  // Get user credits directly using Firebase Admin SDK (for webhooks/external calls)
+  static async getUserCreditsDirectly(userId: string): Promise<UserCredits> {
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+
+    // Check cache first
+    if (userCreditsCache.has(userId)) {
+      return userCreditsCache.get(userId)!;
+    }
+
+    try {
+      // Use Firebase Admin SDK directly
+      const firestoreInstance = getDB();
+      if (!firestoreInstance) {
+        throw new Error('Firebase Admin SDK not available');
+      }
+
+      const userDoc = await firestoreInstance.collection(COLLECTIONS.CREDITS).doc(userId).get();
+
+      if (!userDoc.exists) {
+        // For webhook calls, if user doesn't exist, create them
+        const newUser: UserCredits = {
+          userId: userId,
+          credits: FREE_CREDITS,
+          isAnonymous: true, // Assume anonymous for webhook calls
+          createdAt: new Date(),
+          lastUsed: new Date(),
+          totalPurchased: 0,
+          totalUsed: 0
+        };
+
+        // Save to Firestore using Admin SDK
+        await firestoreInstance.collection(COLLECTIONS.CREDITS).doc(userId).set({
+          ...newUser,
+          createdAt: admin.firestore.Timestamp.fromDate(newUser.createdAt),
+          lastUsed: admin.firestore.Timestamp.fromDate(newUser.lastUsed)
+        });
+
+        userCreditsCache.set(userId, newUser);
+
+        // Record free credits transaction
+        await this.recordTransaction({
+          userId: userId,
+          type: 'free_credits',
+          credits: FREE_CREDITS,
+          timestamp: new Date(),
+          success: true
+        });
+
+        logger.info(`[CREDITS] New user ${userId} created via webhook with ${FREE_CREDITS} free credits`);
+        return newUser;
+      }
+
+      const userData = userDoc.data() as UserCredits;
+      userCreditsCache.set(userId, userData);
+      return userData;
+
+    } catch (error) {
+      logger.error(`Error getting user credits directly for ${userId}:`, error);
+      throw new Error(`Failed to get user credits: ${error}`);
     }
   }
 
@@ -332,7 +405,8 @@ export class SimpleCreditSystem {
       const originalAmount = metadata.originalAmount;
       const originalCurrency = metadata.originalCurrency;
 
-      const userAccount = await this.getUserCredits(userId);
+      // For webhook calls, we need to get user data directly without user auth
+      const userAccount = await this.getUserCreditsDirectly(userId);
 
       // Add credits
       userAccount.credits += creditsToAdd;

@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 
 import { chatRoutes } from './routes/chat';
-import creditRoutes from './routes/credits';
+import creditRoutes, { publicCreditRoutes } from './routes/credits';
 import authRoutes from './routes/auth';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { sanitizeInput } from './middleware/validation';
@@ -140,13 +140,21 @@ app.get('/api/test', (_req, res) => {
 });
 
 // API Routes with middleware
+
+// PUBLIC ROUTES (NO AUTH) - External services, webhooks, callbacks
+// These MUST come before any authenticated routes to prevent middleware conflicts
+app.use('/api/credits', publicCreditRoutes);
+
 // Authentication routes (minimal middleware)
 app.use('/api/auth', authWrapper, authRoutes);
 
 // Apply credit checking middleware to chat routes
 app.use('/api/chat', authWrapper, creditCheckWrapper(), chatRoutes);
 
-// Credit management routes
+// Credit purchase and management routes (with auth)
+app.use('/api/credits/purchase', authWrapper, creditRoutes); // Auth required for init
+
+// Credit management routes (with auth) - comes last to avoid conflicts
 app.use('/api/credits', authWrapper, creditRoutes);
 
 // 404 handler
