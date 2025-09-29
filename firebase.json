@@ -7,11 +7,31 @@
     }
   ],
   "hosting": {
-    "public": "frontend/dist",
+    "public": "add-in/dist",
     "ignore": [
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "**/*.@(js|css|png|jpg|jpeg|gif|ico|svg)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "max-age=31536000"
+          }
+        ]
+      },
+      {
+        "source": "**/*.@(html|json|xml)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "max-age=0"
+          }
+        ]
+      }
     ],
     "rewrites": [
       {
@@ -20,10 +40,6 @@
           "functionId": "api",
           "region": "us-central1"
         }
-      },
-      {
-        "source": "**",
-        "destination": "/index.html"
       }
     ]
   }

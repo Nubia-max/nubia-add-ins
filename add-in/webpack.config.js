@@ -91,8 +91,8 @@ module.exports = (env, argv) => {
       },
       proxy: {
         '/api': {
-          target: 'http://localhost:3001',
-          secure: false,
+          target: 'https://us-central1-aibun-ai.cloudfunctions.net',
+          secure: true,
           changeOrigin: true
         }
       },

@@ -31,7 +31,7 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    origin: process.env.CORS_ORIGIN || "https://aibun-ai.web.app",
     methods: ["GET", "POST"]
   }
 });
@@ -83,9 +83,10 @@ app.use(helmet({
 // CORS configuration for Excel add-ins
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow Excel add-in origins and development
+    // Allow Excel add-in origins and production
     const allowedOrigins = [
-      'https://localhost:3000',
+      'https://aibun-ai.web.app',
+      'https://aibun-ai.firebaseapp.com',
       'https://excel.officeapps.live.com',
       'https://outlook.office.com',
       'https://outlook-web.office.com',

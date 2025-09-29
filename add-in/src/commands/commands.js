@@ -4,7 +4,7 @@
  */
 
 // Configuration
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = 'https://us-central1-aibun-ai.cloudfunctions.net/api';
 
 /**
  * Quick Analysis function - triggered by ribbon button
