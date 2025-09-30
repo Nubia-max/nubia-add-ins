@@ -17,6 +17,7 @@ import { setupSocketHandlers } from './utils/socket';
 import { logger } from './utils/logger';
 import { initializeFirebase } from './config/firebase';
 import { authWrapper, creditCheckWrapper } from './middleware/wrappers';
+import { ENV } from './config/environment';
 
 dotenv.config();
 
@@ -31,7 +32,7 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "https://aibun-ai.web.app",
+    origin: ENV.CORS_ORIGIN,
     methods: ["GET", "POST"]
   }
 });
@@ -90,7 +91,7 @@ app.use(cors({
       'https://excel.officeapps.live.com',
       'https://outlook.office.com',
       'https://outlook-web.office.com',
-      process.env.CORS_ORIGIN
+      ENV.CORS_ORIGIN
     ].filter(Boolean);
 
     if (!origin || allowedOrigins.includes(origin)) {

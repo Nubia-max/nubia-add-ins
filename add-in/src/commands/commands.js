@@ -4,7 +4,7 @@
  */
 
 // Configuration
-const API_BASE_URL = 'https://us-central1-aibun-ai.cloudfunctions.net/api';
+const API_BASE_URL = 'https://aibun-ai.web.app/api';
 
 /**
  * Quick Analysis function - triggered by ribbon button

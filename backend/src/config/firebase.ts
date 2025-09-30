@@ -6,6 +6,22 @@ import { logger } from '../utils/logger';
 let firebaseApp: admin.app.App;
 let firebaseHealthy = false;
 
+// Get Firebase Functions config
+const getConfig = () => {
+  // In Firebase Functions, use functions.config()
+  if (process.env.FUNCTIONS_EMULATOR === 'true' || process.env.FIREBASE_CONFIG) {
+    const functions = require('firebase-functions');
+    return functions.config();
+  }
+
+  // Fallback to environment variables for local development
+  return {
+    project: { id: process.env.PROJECT_ID },
+    client: { email: process.env.CLIENT_EMAIL },
+    private: { key: process.env.PRIVATE_KEY }
+  };
+};
+
 export const initializeFirebase = () => {
   try {
     // Check if already initialized
@@ -13,22 +29,36 @@ export const initializeFirebase = () => {
       return firebaseApp;
     }
 
-    // Validate required environment variables
-    if (!process.env.PROJECT_ID || !process.env.CLIENT_EMAIL || !process.env.PRIVATE_KEY) {
-      throw new Error('Missing required Firebase environment variables');
+    // In Firebase Functions environment, use default initialization
+    if (process.env.FIREBASE_CONFIG || process.env.FUNCTIONS_EMULATOR) {
+      logger.info('Initializing Firebase in Functions environment with default credentials');
+      firebaseApp = admin.initializeApp();
+      logger.info('Firebase Admin SDK initialized with default credentials');
+      return firebaseApp;
     }
 
-    // Initialize with environment variables
+    const config = getConfig();
+
+    // Validate required configuration for local development
+    const projectId = config.project?.id || process.env.PROJECT_ID;
+    const clientEmail = config.client?.email || process.env.CLIENT_EMAIL;
+    const privateKey = config.private?.key || process.env.PRIVATE_KEY;
+
+    if (!projectId || !clientEmail || !privateKey) {
+      throw new Error('Missing required Firebase configuration');
+    }
+
+    // Initialize with service account for local development
     firebaseApp = admin.initializeApp({
       credential: admin.credential.cert({
-        projectId: process.env.PROJECT_ID,
-        clientEmail: process.env.CLIENT_EMAIL,
-        privateKey: process.env.PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        projectId,
+        clientEmail,
+        privateKey: privateKey.replace(/\\n/g, '\n'),
       }),
-      projectId: process.env.PROJECT_ID,
+      projectId,
     });
 
-    logger.info('Firebase Admin SDK initialized successfully');
+    logger.info('Firebase Admin SDK initialized with service account');
 
     // Test Firebase connection
     testFirebaseConnection();
@@ -37,11 +67,16 @@ export const initializeFirebase = () => {
 
   } catch (error) {
     logger.error('Failed to initialize Firebase:', error);
-    logger.error('Environment variables check:', {
-      projectId: !!process.env.PROJECT_ID,
-      clientEmail: !!process.env.CLIENT_EMAIL,
-      privateKey: !!process.env.PRIVATE_KEY
-    });
+    if (process.env.FIREBASE_CONFIG || process.env.FUNCTIONS_EMULATOR) {
+      logger.error('Error in Functions environment');
+    } else {
+      const config = getConfig();
+      logger.error('Configuration check:', {
+        projectId: !!(config.project?.id || process.env.PROJECT_ID),
+        clientEmail: !!(config.client?.email || process.env.CLIENT_EMAIL),
+        privateKey: !!(config.private?.key || process.env.PRIVATE_KEY)
+      });
+    }
     throw new Error('Firebase initialization failed');
   }
 };

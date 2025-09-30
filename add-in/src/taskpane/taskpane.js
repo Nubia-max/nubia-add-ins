@@ -112,7 +112,7 @@ async function setupAnonymousAuth() {
 }
 
 // Backend API calls
-const BACKEND_URL = 'https://us-central1-aibun-ai.cloudfunctions.net/api';
+const BACKEND_URL = 'https://aibun-ai.web.app/api';
 
 async function makeAPICall(endpoint, options = {}) {
     // Set default timeout of 3 minutes for AI operations

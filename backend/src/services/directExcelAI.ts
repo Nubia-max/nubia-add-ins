@@ -6,18 +6,19 @@
 
 import OpenAI from 'openai';
 import { logger } from '../utils/logger';
+import { ENV } from '../config/environment';
 
 // Lazy initialization to avoid module load issues
 let client: OpenAI | null = null;
 
 function getOpenAIClient(): OpenAI {
   if (!client) {
-    if (!process.env.DEEPSEEK_API_KEY) {
-      throw new Error('DEEPSEEK_API_KEY environment variable is required');
+    if (!ENV.DEEPSEEK_API_KEY) {
+      throw new Error('DEEPSEEK_API_KEY configuration is required');
     }
 
     client = new OpenAI({
-      apiKey: process.env.DEEPSEEK_API_KEY,
+      apiKey: ENV.DEEPSEEK_API_KEY,
       baseURL: 'https://api.deepseek.com',
       timeout: 120000, // 2 minutes for complex operations
       maxRetries: 2
