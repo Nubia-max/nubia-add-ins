@@ -7,7 +7,7 @@ import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import multer from 'multer';
 
-import { chatRoutes } from './routes/chat';
+import { chatRoutes } from './routes/chatRoutes';
 import creditRoutes, { publicCreditRoutes } from './routes/credits';
 import authRoutes from './routes/auth';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -16,7 +16,7 @@ import { securityHeaders, requestSizeLimits, detectSuspiciousActivity } from './
 import { setupSocketHandlers } from './utils/socket';
 import { logger } from './utils/logger';
 import { initializeFirebase } from './config/firebase';
-import { authWrapper, creditCheckWrapper } from './middleware/wrappers';
+import { authWrapper } from './middleware/wrappers';
 import { ENV } from './config/environment';
 
 dotenv.config();
@@ -119,29 +119,38 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Root health endpoint
+app.get('/', (_req, res) => {
+  res.send('🔥 Excel Stream AI Backend Active');
+});
+
 // Health check
 app.get('/api/health', (_req, res) => {
   res.status(200).json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    service: 'Moose Excel Add-in API',
+    service: 'Moose Excel Stream AI API',
     version: '2.0.0',
-    features: ['anonymous_auth', 'paystack_payments', 'credit_system']
+    features: ['streaming_ai', 'anonymous_auth', 'paystack_payments', 'credit_system'],
+    endpoints: {
+      'POST /api/chat/stream': 'Excel AI streaming endpoint'
+    }
   });
 });
 
 // Test route
 app.get('/api/test', (_req, res) => {
   res.json({
-    message: 'Moose Excel Add-in API is working!',
+    message: 'Moose Excel Add-in Streaming API is working!',
     timestamp: new Date().toISOString(),
-    service: 'Excel Add-in Backend',
+    service: 'Excel Streaming AI Backend',
     environment: process.env.NODE_ENV || 'development'
   });
 });
 
 // API Routes with middleware
+// STREAMING-ONLY ARCHITECTURE: All Excel AI operations use real-time streaming
 
 // PUBLIC ROUTES (NO AUTH) - External services, webhooks, callbacks
 // These MUST come before any authenticated routes to prevent middleware conflicts
@@ -150,8 +159,9 @@ app.use('/api/credits', publicCreditRoutes);
 // Authentication routes (minimal middleware)
 app.use('/api/auth', authWrapper, authRoutes);
 
-// Apply credit checking middleware to chat routes
-app.use('/api/chat', authWrapper, creditCheckWrapper(), chatRoutes);
+// MAIN FEATURE: Streaming AI chat routes
+// All Excel AI operations now use /api/chat/stream for real-time responses
+app.use('/api/chat', chatRoutes);
 
 // Credit purchase and management routes (with auth)
 app.use('/api/credits/purchase', authWrapper, creditRoutes); // Auth required for init
@@ -191,12 +201,12 @@ server.keepAliveTimeout = 61000; // 61 seconds (must be > proxy timeout)
 server.headersTimeout = 62000; // 62 seconds (must be > keepAliveTimeout)
 
 server.listen(Number(PORT), '0.0.0.0', () => {
-  logger.info(`🚀 Moose Excel Add-in Server running on http://localhost:${PORT}`);
-  logger.info(`📡 API available at http://localhost:${PORT}/api`);
-  logger.info(`🌐 Also accessible via network IP on port ${PORT}`);
-  logger.info(`📊 Service: Excel Add-in Backend`);
-  logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`⏱️ Server timeout: 5 minutes for AI processing`);
+  logger.info(`🔥 Excel Stream AI Backend Active`);
+  logger.info(`📡 Streaming API available at http://localhost:${PORT}/api`);
+  logger.info(`🌐 Main endpoint: POST /api/chat/stream`);
+  logger.info(`📊 Service: Excel Streaming AI Backend`);
+  logger.info(`🌍 Environment: ${ENV.NODE_ENV}`);
+  logger.info(`⏱️ Server timeout: 5 minutes for AI operations`);
 });
 
 export { app, server, io };

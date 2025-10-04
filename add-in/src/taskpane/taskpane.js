@@ -271,7 +271,651 @@ async function purchaseCredits(amount) {
     }
 }
 
-// Send message to AI and handle response
+// Utility functions for streaming
+async function getAuthToken() {
+    if (auth?.currentUser) {
+        try {
+            return await auth.currentUser.getIdToken();
+        } catch (error) {
+            console.warn('Failed to get auth token:', error);
+        }
+    }
+    return null;
+}
+
+function getSessionId() {
+    // Generate or retrieve session ID for this conversation
+    let sessionId = sessionStorage.getItem('moose-session-id');
+    if (!sessionId) {
+        sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        sessionStorage.setItem('moose-session-id', sessionId);
+    }
+    return sessionId;
+}
+
+// Import the comprehensive Excel context builder
+// Note: This will be handled by webpack bundling
+async function buildExcelContext() {
+    // Use the comprehensive context builder for full workbook analysis
+    try {
+        // This calls the dedicated utility function
+        return await buildComprehensiveExcelContext();
+    } catch (error) {
+        console.warn('Comprehensive context failed, using fallback:', error);
+        // Fallback to quick context if comprehensive fails
+        return await buildQuickContext();
+    }
+}
+
+// Comprehensive Excel context using the utility (will be imported via webpack)
+async function buildComprehensiveExcelContext() {
+    return await Excel.run(async (context) => {
+        console.log('📊 Building comprehensive Excel context...');
+
+        const workbook = context.workbook;
+        const worksheets = workbook.worksheets;
+        const activeWorksheet = worksheets.getActiveWorksheet();
+        const selection = context.workbook.getSelectedRange();
+
+        // Load workbook-level properties
+        workbook.load(['name', 'application']);
+        worksheets.load('items');
+        activeWorksheet.load(['name', 'position']);
+        selection.load(['address', 'rowCount', 'columnCount']);
+
+        await context.sync();
+
+        console.log(`📖 Workbook: "${workbook.name}" with ${worksheets.items.length} sheets`);
+
+        const sheetsData = [];
+
+        // Process each worksheet with comprehensive data extraction
+        for (let i = 0; i < worksheets.items.length; i++) {
+            const sheet = worksheets.items[i];
+            const sheetData = await extractSheetData(context, sheet);
+            sheetsData.push(sheetData);
+        }
+
+        // Build final context object
+        const excelContext = {
+            workbookName: workbook.name || 'Untitled Workbook',
+            activeSheet: activeWorksheet.name,
+            selectedRange: selection.address,
+            totalSheets: worksheets.items.length,
+            worksheets: sheetsData,
+            contextSummary: generateContextSummary(sheetsData, activeWorksheet.name),
+            timestamp: new Date().toISOString()
+        };
+
+        console.log('✅ Excel context built successfully:', {
+            workbook: excelContext.workbookName,
+            sheets: excelContext.totalSheets,
+            activeSheet: excelContext.activeSheet,
+            selectedRange: excelContext.selectedRange
+        });
+
+        return excelContext;
+    });
+}
+
+// Extract comprehensive data from a single worksheet
+async function extractSheetData(context, sheet) {
+    try {
+        console.log(`📋 Processing sheet: "${sheet.name}"`);
+
+        sheet.load(['name', 'position', 'visibility']);
+
+        let sheetData = {
+            name: sheet.name,
+            position: null,
+            visibility: null,
+            activeRange: null,
+            sampleData: [],
+            namedRanges: [],
+            formulas: [],
+            charts: [],
+            rowCount: 0,
+            colCount: 0,
+            hasData: false
+        };
+
+        await context.sync();
+
+        sheetData.position = sheet.position;
+        sheetData.visibility = sheet.visibility;
+
+        // Try to get used range for data extraction
+        try {
+            const usedRange = sheet.getUsedRange();
+            usedRange.load(['values', 'formulas', 'address', 'rowCount', 'columnCount']);
+
+            await context.sync();
+
+            if (usedRange.values && usedRange.values.length > 0) {
+                sheetData.rowCount = usedRange.rowCount;
+                sheetData.colCount = usedRange.columnCount;
+                sheetData.activeRange = usedRange.address;
+
+                // Extract sample data (first 20 rows × 10 columns for performance)
+                const maxRows = Math.min(20, usedRange.values.length);
+                const maxCols = 10;
+
+                sheetData.sampleData = usedRange.values
+                    .slice(0, maxRows)
+                    .map(row => {
+                        if (Array.isArray(row)) {
+                            return row.slice(0, maxCols);
+                        }
+                        return [row]; // Single value
+                    });
+
+                // Check if sheet has meaningful data
+                sheetData.hasData = sheetData.sampleData.some(row =>
+                    row.some(cell => cell !== null && cell !== undefined && cell !== '')
+                );
+
+                // Extract formulas from used range
+                if (usedRange.formulas && usedRange.formulas.length > 0) {
+                    sheetData.formulas = extractFormulas(usedRange.formulas, usedRange.address);
+                }
+
+                console.log(`  📊 Data: ${sheetData.rowCount}×${sheetData.colCount}, Sample: ${sheetData.sampleData.length} rows`);
+            }
+
+        } catch (rangeError) {
+            console.log(`  ⚠️ No used range found for sheet "${sheet.name}"`);
+        }
+
+        return sheetData;
+
+    } catch (error) {
+        console.warn(`Error processing sheet "${sheet.name}":`, error);
+        return {
+            name: sheet.name || 'Error Sheet',
+            position: null,
+            activeRange: null,
+            sampleData: [],
+            namedRanges: [],
+            formulas: [],
+            charts: [],
+            rowCount: 0,
+            colCount: 0,
+            hasData: false,
+            error: error.message
+        };
+    }
+}
+
+// Extract formulas from range data
+function extractFormulas(formulasArray, rangeAddress) {
+    const formulas = [];
+    const startRow = parseInt(rangeAddress.match(/\d+/)[0]);
+
+    formulasArray.forEach((row, rowIndex) => {
+        if (Array.isArray(row)) {
+            row.forEach((formula, colIndex) => {
+                if (formula && typeof formula === 'string' && formula.startsWith('=')) {
+                    const cellAddress = `${columnIndexToLetter(colIndex)}${startRow + rowIndex}`;
+                    formulas.push({
+                        cell: cellAddress,
+                        formula: formula,
+                        result: null
+                    });
+                }
+            });
+        }
+    });
+
+    return formulas.slice(0, 50);
+}
+
+// Convert column index to Excel letter
+function columnIndexToLetter(index) {
+    let letter = '';
+    while (index >= 0) {
+        letter = String.fromCharCode((index % 26) + 65) + letter;
+        index = Math.floor(index / 26) - 1;
+    }
+    return letter;
+}
+
+// Generate context summary
+function generateContextSummary(sheets, activeSheet) {
+    const parts = [];
+    const totalSheets = sheets.length;
+    const sheetsWithData = sheets.filter(s => s.hasData).length;
+
+    parts.push(`Excel workbook with ${totalSheets} sheet(s), ${sheetsWithData} containing data`);
+
+    if (activeSheet) {
+        parts.push(`Currently active: "${activeSheet}"`);
+    }
+
+    sheets.forEach(sheet => {
+        const sheetParts = [];
+
+        if (sheet.hasData) {
+            sheetParts.push(`${sheet.rowCount}×${sheet.colCount} data`);
+        } else {
+            sheetParts.push('empty');
+        }
+
+        if (sheet.formulas && sheet.formulas.length > 0) {
+            sheetParts.push(`${sheet.formulas.length} formulas`);
+        }
+
+        if (sheet.namedRanges && sheet.namedRanges.length > 0) {
+            sheetParts.push(`${sheet.namedRanges.length} named ranges`);
+        }
+
+        if (sheet.charts && sheet.charts.length > 0) {
+            sheetParts.push(`${sheet.charts.length} charts`);
+        }
+
+        parts.push(`"${sheet.name}": ${sheetParts.join(', ')}`);
+    });
+
+    return parts.join('. ');
+}
+
+// Quick fallback context builder
+async function buildQuickContext() {
+    try {
+        return await Excel.run(async (context) => {
+            const workbook = context.workbook;
+            const activeWorksheet = workbook.worksheets.getActiveWorksheet();
+            const selection = context.workbook.getSelectedRange();
+
+            workbook.load('name');
+            activeWorksheet.load('name');
+            selection.load('address');
+
+            await context.sync();
+
+            return {
+                workbookName: workbook.name,
+                activeSheet: activeWorksheet.name,
+                selectedRange: selection.address,
+                worksheets: [{
+                    name: activeWorksheet.name,
+                    activeRange: selection.address,
+                    cells: []
+                }],
+                contextSummary: `Quick context: Active sheet "${activeWorksheet.name}"`,
+                timestamp: new Date().toISOString(),
+                contextType: 'quick'
+            };
+        });
+    } catch (error) {
+        console.warn('Quick context build failed:', error);
+        return {
+            workbookName: 'Unknown Workbook',
+            activeSheet: 'Unknown Sheet',
+            selectedRange: null,
+            worksheets: [],
+            contextSummary: 'Excel context unavailable',
+            timestamp: new Date().toISOString(),
+            contextType: 'fallback'
+        };
+    }
+}
+
+function getConversationHistory() {
+    // Get recent messages from chat for context
+    const chatMessages = document.getElementById('chatMessages');
+    if (!chatMessages) return [];
+
+    const messages = [];
+    const messageElements = chatMessages.querySelectorAll('.message:not(.system-message)');
+
+    // Get last 6 messages (3 exchanges) for context
+    const recentMessages = Array.from(messageElements).slice(-6);
+
+    recentMessages.forEach(msg => {
+        const sender = msg.classList.contains('user') ? 'user' : 'assistant';
+        const content = msg.querySelector('.message-content')?.textContent || '';
+        if (content.trim()) {
+            messages.push({ role: sender, content: content.trim() });
+        }
+    });
+
+    return messages;
+}
+
+function getApiUrl() {
+    return BACKEND_URL;
+}
+
+// Streaming UI functions
+function addStreamingMessage() {
+    const chatMessages = document.getElementById('chatMessages');
+    if (!chatMessages) return null;
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant streaming';
+    messageDiv.innerHTML = `
+        <div class="message-sender">Moose</div>
+        <div class="message-content">
+            <div class="streaming-content"></div>
+            <div class="streaming-cursor">▋</div>
+        </div>
+    `;
+
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return messageDiv;
+}
+
+function appendStreamChunk(messageElement, chunk) {
+    if (!messageElement) return;
+
+    const streamingContent = messageElement.querySelector('.streaming-content');
+    if (streamingContent) {
+        streamingContent.textContent += chunk;
+
+        // Auto-scroll to bottom
+        const chatMessages = document.getElementById('chatMessages');
+        if (chatMessages) {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+    }
+}
+
+function finalizeStreaming(messageElement, finalContent, metadata = null) {
+    if (!messageElement) return;
+
+    const messageContent = messageElement.querySelector('.message-content');
+    if (messageContent) {
+        // Remove streaming indicators and replace with final content
+        messageContent.innerHTML = `<div class="final-content">${escapeHtml(finalContent)}</div>`;
+
+        // Remove streaming class
+        messageElement.classList.remove('streaming');
+
+        // Update credits if provided in metadata
+        if (metadata?.creditsUsed && metadata?.remainingCredits !== undefined) {
+            userCredits = metadata.remainingCredits;
+            updateCreditsDisplay();
+
+            // Show credit usage info
+            addSystemMessage(`💳 Used ${metadata.creditsUsed} credits. Remaining: ${metadata.remainingCredits}`, 'info');
+        }
+
+        // Handle Excel code execution with approval system
+        if (metadata?.code && metadata.code.trim()) {
+            handleAICodeApproval({
+                code: metadata.code,
+                understanding: metadata.understanding || finalContent || 'Excel operation',
+                message: finalContent,
+                confidence: metadata.confidence || 0.8
+            });
+        }
+
+        updateStatus('Response complete', 'success');
+    }
+}
+
+// Execute generated Excel code with approval
+async function executeGeneratedCodeWithApproval(aiResponse) {
+    addSystemMessage('🔄 Executing Excel command...', 'info');
+
+    try {
+        const executionResult = await executeUnlimitedExcelCode(aiResponse.code, aiResponse.understanding || 'Excel operation');
+
+        if (executionResult.success) {
+            addSystemMessage('✅ Excel command executed successfully!', 'success');
+            console.log('Excel execution result:', executionResult);
+            return { success: true, result: executionResult };
+        } else {
+            addSystemMessage('⚠️ Excel command completed with warnings: ' + (executionResult.message || 'Check console for details'), 'warning');
+            console.warn('Excel execution warning:', executionResult);
+            return { success: false, message: executionResult.message };
+        }
+    } catch (error) {
+        addSystemMessage('❌ Failed to execute Excel command: ' + error.message, 'error');
+        console.error('Excel execution error:', error);
+        return { success: false, message: error.message };
+    }
+}
+
+// Handle AI code approval workflow
+function handleAICodeApproval(aiResponse) {
+    const { code, understanding, confidence } = aiResponse;
+
+    // Check if this contains executable Excel code
+    if (!containsExecutableExcelCode(code)) {
+        console.log('ℹ️ AI response does not contain executable Excel code');
+        return;
+    }
+
+    console.log('🤖 AI generated Excel code, showing approval prompt');
+
+    // Auto-approve high-confidence simple operations
+    if (confidence && confidence > 0.95 && code.length < 300) {
+        console.log('🚀 Auto-approving high-confidence operation');
+
+        addSystemMessage('🔄 Auto-executing high-confidence Excel operation...', 'info');
+        executeGeneratedCodeWithApproval(aiResponse);
+        return;
+    }
+
+    // Show approval UI for manual review
+    showApprovalPrompt(aiResponse);
+}
+
+// Show approval prompt UI
+function showApprovalPrompt(aiResponse) {
+    const chatMessages = document.getElementById('chatMessages');
+    if (!chatMessages) return;
+
+    const { code, understanding, message, confidence } = aiResponse;
+
+    // Create approval container
+    const approvalContainer = document.createElement('div');
+    approvalContainer.className = 'ai-approval-container';
+    approvalContainer.id = `approval-${Date.now()}`;
+
+    // Determine confidence level styling
+    const confidenceClass = getConfidenceClass(confidence);
+    const confidenceText = confidence ? `${Math.round(confidence * 100)}%` : 'Unknown';
+
+    approvalContainer.innerHTML = `
+        <div class="ai-edit-card">
+            <div class="ai-edit-header">
+                <div class="ai-edit-title">
+                    <span class="ai-icon">🤖</span>
+                    <span>AI wants to edit your Excel sheet</span>
+                    <span class="confidence-badge ${confidenceClass}">${confidenceText}</span>
+                </div>
+                <div class="ai-edit-description">
+                    ${escapeHtml(understanding || message || 'Excel operation')}
+                </div>
+            </div>
+
+            <div class="ai-edit-preview">
+                <div class="preview-header">
+                    <span class="code-icon">⚡</span>
+                    <span>Code to execute:</span>
+                </div>
+                <pre class="code-block"><code class="language-javascript">${escapeHtml(code)}</code></pre>
+            </div>
+
+            <div class="ai-edit-actions">
+                <button id="approveBtn-${approvalContainer.id}" class="approve-btn">
+                    <span class="btn-icon">✅</span>
+                    <span>Apply Changes</span>
+                </button>
+                <button id="rejectBtn-${approvalContainer.id}" class="reject-btn">
+                    <span class="btn-icon">❌</span>
+                    <span>Reject</span>
+                </button>
+                <button id="copyBtn-${approvalContainer.id}" class="copy-btn">
+                    <span class="btn-icon">📋</span>
+                    <span>Copy Code</span>
+                </button>
+            </div>
+
+            <div class="ai-edit-warning">
+                <span class="warning-icon">⚠️</span>
+                <span>Review the code carefully before applying. Changes will modify your Excel workbook.</span>
+            </div>
+        </div>
+    `;
+
+    chatMessages.appendChild(approvalContainer);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    // Setup event handlers
+    setupApprovalHandlers(approvalContainer.id, aiResponse);
+}
+
+// Setup approval button handlers
+function setupApprovalHandlers(containerId, aiResponse) {
+    const approveBtn = document.getElementById(`approveBtn-${containerId}`);
+    const rejectBtn = document.getElementById(`rejectBtn-${containerId}`);
+    const copyBtn = document.getElementById(`copyBtn-${containerId}`);
+    const container = document.getElementById(containerId);
+
+    if (approveBtn) {
+        approveBtn.onclick = async () => {
+            console.log('✅ User approved AI edit');
+
+            // Disable buttons during execution
+            setButtonsLoading(containerId, true);
+
+            try {
+                const result = await executeGeneratedCodeWithApproval(aiResponse);
+
+                if (result.success) {
+                    showApprovalFeedback(container, 'success', '✅ Changes applied successfully!');
+                } else {
+                    showApprovalFeedback(container, 'error', `❌ Failed to apply changes: ${result.message}`);
+                }
+
+            } catch (error) {
+                console.error('Error applying AI edit:', error);
+                showApprovalFeedback(container, 'error', `❌ Execution error: ${error.message}`);
+            }
+
+            // Remove approval after 3 seconds
+            setTimeout(() => {
+                if (container && container.parentNode) {
+                    container.remove();
+                }
+            }, 3000);
+        };
+    }
+
+    if (rejectBtn) {
+        rejectBtn.onclick = () => {
+            console.log('❌ User rejected AI edit');
+            showApprovalFeedback(container, 'info', '❌ Changes rejected by user');
+
+            setTimeout(() => {
+                if (container && container.parentNode) {
+                    container.remove();
+                }
+            }, 1000);
+        };
+    }
+
+    if (copyBtn) {
+        copyBtn.onclick = async () => {
+            try {
+                await navigator.clipboard.writeText(aiResponse.code);
+                const originalText = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<span class="btn-icon">✅</span><span>Copied!</span>';
+
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalText;
+                }, 2000);
+
+            } catch (error) {
+                console.error('Failed to copy code:', error);
+                fallbackCopyToClipboard(aiResponse.code);
+            }
+        };
+    }
+}
+
+// Check if code contains executable Excel operations
+function containsExecutableExcelCode(code) {
+    if (!code || typeof code !== 'string') return false;
+
+    // Look for Office.js patterns
+    const officePatterns = [
+        'Excel.run',
+        'context.workbook',
+        'worksheet',
+        'getRange',
+        'setValue',
+        'context.sync'
+    ];
+
+    return officePatterns.some(pattern =>
+        code.toLowerCase().includes(pattern.toLowerCase())
+    );
+}
+
+// Get confidence CSS class
+function getConfidenceClass(confidence) {
+    if (!confidence) return 'confidence-unknown';
+    if (confidence >= 0.9) return 'confidence-high';
+    if (confidence >= 0.7) return 'confidence-medium';
+    return 'confidence-low';
+}
+
+// Set loading state for buttons
+function setButtonsLoading(containerId, isLoading) {
+    const approveBtn = document.getElementById(`approveBtn-${containerId}`);
+    const rejectBtn = document.getElementById(`rejectBtn-${containerId}`);
+
+    if (approveBtn) {
+        approveBtn.disabled = isLoading;
+        if (isLoading) {
+            approveBtn.innerHTML = '<span class="btn-icon">⏳</span><span>Applying...</span>';
+        }
+    }
+
+    if (rejectBtn) {
+        rejectBtn.disabled = isLoading;
+    }
+}
+
+// Show approval feedback
+function showApprovalFeedback(container, type, message) {
+    const actionsDiv = container.querySelector('.ai-edit-actions');
+    if (actionsDiv) {
+        actionsDiv.innerHTML = `
+            <div class="approval-feedback ${type}">
+                <span>${message}</span>
+            </div>
+        `;
+    }
+}
+
+// Fallback copy method
+function fallbackCopyToClipboard(text) {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    try {
+        document.execCommand('copy');
+        console.log('Code copied using fallback method');
+    } catch (err) {
+        console.error('Fallback copy failed:', err);
+    }
+
+    document.body.removeChild(textArea);
+}
+
+// Send message to AI with streaming response
 async function sendMessage() {
     const chatInput = document.getElementById('chatInput');
     const sendButton = document.getElementById('sendButton');
@@ -286,59 +930,14 @@ async function sendMessage() {
         // Disable input while processing
         sendButton.disabled = true;
         chatInput.disabled = true;
-        updateStatus('Processing your request...', 'loading');
+        updateStatus('Connecting to AI...', 'loading');
 
         // Add user message to chat
         addMessage('user', message);
         chatInput.value = '';
 
-        // Check if user has enough credits
-        const creditCheck = await makeAPICall('/credits/estimate', {
-            method: 'POST',
-            body: JSON.stringify({ command: message })
-        });
-
-        const estimatedCredits = creditCheck.data.estimatedCredits;
-
-        if (userCredits < estimatedCredits) {
-            if (currentUser.isAnonymous) {
-                addSystemMessage(`Need ${estimatedCredits} credits. You have ${userCredits}. Purchase credits to continue.`, 'warning');
-                updateStatus(`Insufficient credits. Need ${estimatedCredits}, have ${userCredits}`, 'error');
-                showPaymentModal();
-            } else {
-                addSystemMessage(`Need ${estimatedCredits} credits. You have ${userCredits}. Purchase more credits?`, 'warning');
-                updateStatus(`Insufficient credits. Need ${estimatedCredits}, have ${userCredits}`, 'error');
-                showPaymentModal();
-            }
-            return;
-        }
-
-        // Show loading indicator in chat
-        const loadingMessageId = addLoadingMessage();
-
-        // Send request to AI
-        const response = await makeAPICall('/chat', {
-            method: 'POST',
-            body: JSON.stringify({
-                userCommand: message,
-                model: 'deepseek-chat'
-            })
-        });
-
-        // Remove loading indicator
-        removeMessage(loadingMessageId);
-
-        if (response.success) {
-            // Handle the AI response
-            await handleResponse(response.data);
-
-            // Update credits after successful command
-            await loadUserCredits();
-            updateStatus('Ready - Anonymous Mode', 'success');
-        } else {
-            addSystemMessage('Command failed: ' + (response.message || 'Unknown error'), 'error');
-            updateStatus('Command failed', 'error');
-        }
+        // Start streaming AI response
+        await sendMessageToAI(message);
 
     } catch (error) {
         console.error('Chat error:', error);
@@ -349,6 +948,107 @@ async function sendMessage() {
         sendButton.disabled = false;
         chatInput.disabled = false;
         chatInput.focus();
+    }
+}
+
+// Stream AI response using EventSource
+async function sendMessageToAI(message) {
+    const token = await getAuthToken();
+    const sessionId = getSessionId();
+    const context = await buildExcelContext();
+
+    const body = JSON.stringify({
+        message,
+        context,
+        source: 'intelligent-add-in',
+        conversationHistory: getConversationHistory()
+    });
+
+    // Show streaming indicator
+    const streamingMessageId = addStreamingMessage();
+    updateStatus('🧠 Thinking...', 'loading');
+
+    try {
+        // EventSource doesn't support POST with body, so we need to use fetch with SSE
+        const response = await fetch(`${getApiUrl()}/chat/stream`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'X-Session-ID': sessionId,
+                'x-anonymous-id': currentUser?.uid || 'anonymous',
+                'Accept': 'text/event-stream',
+                'Cache-Control': 'no-cache'
+            },
+            body: body
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        let streamingContent = '';
+        let isComplete = false;
+        let buffer = '';
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+                for (const line of lines) {
+                    if (line.trim() === '') continue;
+
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+
+                        if (data === '[DONE]') {
+                            finalizeStreaming(streamingMessageId, streamingContent);
+                            isComplete = true;
+                            return;
+                        }
+
+                        // Append token to streaming content
+                        streamingContent += data;
+                        appendStreamChunk(streamingMessageId, data);
+
+                    } else if (line.startsWith('event: progress')) {
+                        // Next line should be the progress data
+                        continue;
+                    } else if (line.startsWith('event: complete')) {
+                        // Next line should be the completion data
+                        continue;
+                    } else if (line.startsWith('event: error')) {
+                        // Next line should be the error data
+                        continue;
+                    } else if (line.startsWith('event: done')) {
+                        finalizeStreaming(streamingMessageId, streamingContent);
+                        isComplete = true;
+                        return;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Stream reading error:', error);
+            if (!isComplete) {
+                removeMessage(streamingMessageId);
+                addSystemMessage('Streaming error: ' + error.message, 'error');
+                updateStatus('Streaming failed', 'error');
+            }
+        }
+
+    } catch (error) {
+        console.error('Streaming setup error:', error);
+        removeMessage(streamingMessageId);
+        addSystemMessage('Failed to start streaming: ' + error.message, 'error');
+        updateStatus('Streaming failed', 'error');
     }
 }
 
