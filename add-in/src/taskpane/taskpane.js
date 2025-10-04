@@ -1109,18 +1109,40 @@ function handleStreamedResponse(data) {
                 }
             }
 
-            if (parsed.understanding) {
-                console.log('🧠 AI Understanding:', parsed.understanding);
-                // This will be added to the streaming message content
+            // Handle thinking phase - show like Claude Code
+            if (parsed.thinking) {
+                console.log('🤔 AI Thinking:', parsed.thinking);
+                FeedbackSystem.startThinking('🧠 Thinking...');
+                // Add thinking to chat as a special message
+                if (window.addThinkingMessage) {
+                    window.addThinkingMessage(parsed.thinking);
+                }
             }
 
-            // Automatically execute code if present
+            // Handle conversational response - always show this
+            if (parsed.conversation) {
+                console.log('💬 AI Response:', parsed.conversation);
+                // Add conversation as the main AI response
+                addMessage('assistant', parsed.conversation);
+            }
+
+            // Handle code execution with approval if needed
             if (parsed.code) {
-                console.log('💻 Code detected in stream, executing asynchronously...');
-                // Execute code asynchronously to not block streaming
-                executeStreamedCode(parsed.code).catch(error => {
-                    console.error('Async code execution failed:', error);
-                });
+                console.log('💻 Code detected in stream...');
+
+                if (parsed.needsApproval) {
+                    console.log('⚠️ Code needs approval');
+                    FeedbackSystem.setStatus('⏳ Awaiting your approval...', 'warning');
+                    if (window.showApprovalDialog) {
+                        window.showApprovalDialog(parsed.code, parsed.conversation || 'Execute this Excel operation?');
+                    }
+                } else {
+                    console.log('✅ Auto-executing approved code');
+                    executeStreamedCode(parsed.code).catch(error => {
+                        console.error('Async code execution failed:', error);
+                        addSystemMessage('Code execution failed: ' + error.message, 'error');
+                    });
+                }
             }
 
             // Return the parsed data for further processing
@@ -1244,12 +1266,15 @@ async function sendMessageToAI(message) {
                         const parsedData = handleStreamedResponse(data);
 
                         if (parsedData) {
-                            // Handle structured response
-                            if (parsedData.understanding) {
-                                streamingContent += parsedData.understanding;
-                                appendStreamChunk(streamingMessageId, parsedData.understanding);
+                            // Structured response is handled in handleStreamedResponse
+                            // Don't add to streaming content as thinking/conversation are handled separately
+                            if (parsedData.thinking || parsedData.conversation) {
+                                // These are handled by the response handler
+                            } else {
+                                // Add any other data to streaming content
+                                streamingContent += JSON.stringify(parsedData);
+                                appendStreamChunk(streamingMessageId, JSON.stringify(parsedData));
                             }
-                            // Code execution is handled asynchronously in handleStreamedResponse
                         } else {
                             // Handle regular streaming token
                             streamingContent += data;

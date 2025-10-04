@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { logger } from '../utils/logger';
-import { generateDirectExcelCode } from '../services/directExcelAI';
+import { generateExcelCode } from '../services/directExcelAI';
 import { contextCache } from '../services/contextCache';
 import SimpleCreditSystem from '../services/creditSystem';
 import { AuthenticatedRequest } from '../middleware/auth';
@@ -35,9 +35,9 @@ export const handleChatStream = async (req: AuthenticatedRequest, res: Response)
 
     sendEvent('progress', { status: 'Context enhanced, generating code...', progress: 30 });
 
-    const directResponse = await generateDirectExcelCode({
-      userCommand: message,
-      excelContext: enhancedContext
+    const directResponse = await generateExcelCode({
+      command: message,
+      context: enhancedContext
     });
 
     sendEvent('progress', { status: 'Code generated, finalizing...', progress: 90 });
@@ -55,10 +55,10 @@ export const handleChatStream = async (req: AuthenticatedRequest, res: Response)
       sendEvent('complete', {
         success: true,
         type: 'direct-excel',
-        understanding: directResponse.understanding,
+        thinking: directResponse.thinking,
+        conversation: directResponse.conversation,
         code: directResponse.code,
-        message: directResponse.message,
-        confidence: directResponse.confidence,
+        needsApproval: directResponse.needsApproval,
         tokensUsed: tokensUsed,
         creditsUsed: creditResult.creditsDeducted,
         remainingCredits: creditResult.remainingCredits,
@@ -101,15 +101,13 @@ export const handleChat = async (req: AuthenticatedRequest, res: Response) => {
     const enhancedContext = contextCache.enhanceContext(context || {});
     contextCache.cacheContext(sessionId, enhancedContext);
 
-    const directResponse = await generateDirectExcelCode({
-      userCommand: command,
-      excelContext: enhancedContext
+    const directResponse = await generateExcelCode({
+      command: command,
+      context: enhancedContext
     });
 
     logger.info('🧠 Direct Excel AI Response:', {
-      understanding: directResponse.understanding?.substring(0, 100),
-      codeLength: directResponse.code?.length,
-      confidence: directResponse.confidence
+      codeLength: directResponse.code?.length
     });
 
     // Deduct credits after successful operation based on actual API token usage
@@ -123,10 +121,10 @@ export const handleChat = async (req: AuthenticatedRequest, res: Response) => {
 
     return ApiResponseHelper.success(res, {
       type: 'direct-excel',
-      understanding: directResponse.understanding,
+      thinking: directResponse.thinking,
+      conversation: directResponse.conversation,
       code: directResponse.code,
-      message: directResponse.message,
-      confidence: directResponse.confidence,
+      needsApproval: directResponse.needsApproval,
       tokensUsed: tokensUsed,
       creditsUsed: creditResult.creditsDeducted,
       remainingCredits: creditResult.remainingCredits

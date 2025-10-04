@@ -7,7 +7,7 @@
 import { Request, Response } from 'express';
 import { logger } from '../utils/logger';
 import { AuthenticatedRequest } from '../middleware/auth';
-import { generateDirectExcelCode } from './directExcelAI';
+import { generateExcelCode } from './directExcelAI';
 import SimpleCreditSystem, { TOKENS_PER_CREDIT } from './creditSystem';
 
 /**
@@ -41,9 +41,9 @@ export async function executeAction(req: AuthenticatedRequest, res: Response): P
 
     // Step 2: Generate Excel code using AI (get actual token usage)
     logger.debug('Calling directExcelAI for code generation...');
-    const aiResponse = await generateDirectExcelCode({
-      userCommand: message,
-      excelContext: context || {}
+    const aiResponse = await generateExcelCode({
+      command: message,
+      context: context || {}
     });
 
     // Step 3: Calculate credits used based on actual token consumption
@@ -63,10 +63,10 @@ export async function executeAction(req: AuthenticatedRequest, res: Response): P
     // Step 6: Return successful response
     const response = {
       status: 'success',
-      understanding: aiResponse.understanding,
+      thinking: aiResponse.thinking,
+      conversation: aiResponse.conversation,
       code: aiResponse.code,
-      confidence: aiResponse.confidence,
-      message: aiResponse.message,
+      needsApproval: aiResponse.needsApproval,
       tokensUsed: aiResponse.tokensUsed,
       creditsUsed: creditResult.creditsDeducted,
       remainingCredits: creditResult.remainingCredits

@@ -7,7 +7,7 @@ module.exports = (env, argv) => {
 
   return {
     entry: {
-      taskpane: ['./src/taskpane/unlimitedExecutor.js', './src/taskpane/taskpane.js'],
+      taskpane: ['./src/utils/buildExcelContext.js', './src/utils/unlimitedExecutor.js', './src/utils/conversationalUI.js', './src/taskpane/taskpane.js'],
       commands: './src/commands/commands.js',
       'excel-functions': './src/functions/excel-functions.js'
     },

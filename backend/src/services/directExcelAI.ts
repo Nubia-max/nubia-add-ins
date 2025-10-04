@@ -1,42 +1,37 @@
 /**
- * Direct Excel AI - Unlimited Power Mode
- * AI generates raw Office.js code that executes directly in Excel
- * NO LIMITS, NO GUARDRAILS - MAXIMUM CAPABILITY
+ * Direct Excel AI - Lightweight Action Engine
+ * Generates raw executable Office.js code for direct Excel automation
+ * Clean, fast, minimal - Claude-for-Excel freedom
  */
 
 import OpenAI from 'openai';
 import { logger } from '../utils/logger';
 import { ENV } from '../config/environment';
 
-// Lazy initialization to avoid module load issues
 let client: OpenAI | null = null;
 
-function getOpenAIClient(): OpenAI {
+function getClient(): OpenAI {
   if (!client) {
-    if (!ENV.DEEPSEEK_API_KEY) {
-      throw new Error('DEEPSEEK_API_KEY configuration is required');
-    }
-
     client = new OpenAI({
       apiKey: ENV.DEEPSEEK_API_KEY,
       baseURL: 'https://api.deepseek.com',
-      timeout: 120000, // 2 minutes for complex operations
-      maxRetries: 2
+      timeout: 60000,
+      maxRetries: 1
     });
   }
   return client;
 }
 
-interface DirectExcelRequest {
-  userCommand: string;
-  excelContext: any;
+interface ExcelCommand {
+  command: string;
+  context?: any;
 }
 
-interface DirectExcelResponse {
-  understanding: string;
-  code: string;
-  confidence: number;
-  message: string;
+interface ExcelCodeResponse {
+  thinking: string;
+  conversation: string;
+  code?: string;
+  needsApproval: boolean;
   tokensUsed: {
     input: number;
     output: number;
@@ -44,138 +39,104 @@ interface DirectExcelResponse {
   };
 }
 
-export async function generateDirectExcelCode(request: DirectExcelRequest): Promise<DirectExcelResponse> {
+export async function generateExcelCode(request: ExcelCommand): Promise<ExcelCodeResponse> {
   try {
-    logger.info('🚀 Direct Excel AI - Unlimited Power Mode', {
-      command: request.userCommand.substring(0, 100),
-      contextType: request.excelContext?.selectionType
-    });
-
-    const prompt = buildDirectExcelPrompt(request);
-
-    const completion = await getOpenAIClient().chat.completions.create({
+    const completion = await getClient().chat.completions.create({
       model: "deepseek-chat",
       messages: [
         {
           role: "system",
-          content: prompt
+          content: buildConversationalPrompt(request.context)
         },
         {
           role: "user",
-          content: `Execute this Excel command: "${request.userCommand}"`
+          content: request.command
         }
       ],
-      temperature: 0.1,
-      max_tokens: 8000
+      temperature: 0.3,
+      max_tokens: 4000
     });
 
-    const response = completion.choices[0]?.message?.content;
+    const rawResponse = completion.choices[0]?.message?.content || '';
+    const parsed = parseConversationalResponse(rawResponse);
 
-    if (!response) {
-      throw new Error('No response from AI');
-    }
-
-    // Extract token usage from API response
-    const tokensUsed = {
-      input: completion.usage?.prompt_tokens || 0,
-      output: completion.usage?.completion_tokens || 0,
-      total: completion.usage?.total_tokens || 0
-    };
-
-    // Parse the AI response
-    const parsed = parseAIResponse(response);
-
-    logger.info('🧠 Direct Excel AI Generated Code', {
-      understanding: parsed.understanding?.substring(0, 100),
-      codeLength: parsed.code?.length,
-      confidence: parsed.confidence,
-      tokensUsed: tokensUsed.total
-    });
-
-    // Log the actual generated code for debugging
-    logger.debug('Generated Excel Code:', parsed.code);
-
-    // Add token usage to response
     return {
-      ...parsed,
-      tokensUsed
+      thinking: parsed.thinking,
+      conversation: parsed.conversation,
+      code: parsed.code,
+      needsApproval: parsed.needsApproval,
+      tokensUsed: {
+        input: completion.usage?.prompt_tokens || 0,
+        output: completion.usage?.completion_tokens || 0,
+        total: completion.usage?.total_tokens || 0
+      }
     };
 
   } catch (error) {
-    logger.error('Direct Excel AI Error:', error);
-    throw new Error(`Direct Excel AI failed: ${(error as Error).message}`);
+    logger.error('Excel AI generation failed:', error);
+    throw error;
   }
 }
 
-function buildDirectExcelPrompt(request: DirectExcelRequest): string {
-  return `You are Direct Excel AI - PRECISION MODE.
+function buildConversationalPrompt(context?: any): string {
+  const contextInfo = context ? `
+Current Excel context: ${context.activeSheetName || 'Active sheet'}, Selection: ${context.selectedRange || 'None'}` : '';
 
-You generate accurate Office.js code that executes reliably in Excel with proper error handling and coordinate management.
+  return `You are Moose, an Excel AI assistant. Behave exactly like Claude Code:
 
-USER CONTEXT:
-- Current Selection: ${request.excelContext?.selectedRange || 'Unknown'}
-- Active Sheet: ${request.excelContext?.activeSheetName || 'Unknown'}
-- Available Worksheets: ${request.excelContext?.worksheets?.map((w: any) => w.name).join(', ') || 'Unknown'}
-- Selection Type: ${request.excelContext?.selectionType || 'Unknown'}
+1. ALWAYS start with [THINKING] to analyze the user's request
+2. Then provide a [CONVERSATION] response explaining what you'll do
+3. If Excel automation is needed, include [CODE] with Office.js
+4. Complex operations need [NEEDS_APPROVAL]: true
+${contextInfo}
 
-TASK APPROACH:
-- Handle both simple and complex operations in one comprehensive solution
-- Use proper coordinate management to avoid cell targeting bugs
-- Implement robust error handling for all scenarios
-- Leverage user's current context when relevant
+Response format:
+[THINKING]
+(Your analytical thinking about the user's request)
 
-RESPONSE FORMAT:
-You must respond with valid JSON:
+[CONVERSATION]
+(Friendly conversational response explaining what you're doing)
 
-{
-  "understanding": "What I understood from the user's request",
-  "code": "COMPLETE Office.js function that accomplishes the task",
-  "confidence": 0.95,
-  "message": "Explanation of what the code will do"
+[CODE]
+\`\`\`javascript
+async function executeExcelOperation() {
+  return Excel.run(async (context) => {
+    try {
+      // Your Office.js code here
+      await context.sync();
+    } catch (error) {
+      console.error(error);
+      throw error;
+    }
+  });
 }
-
-CODE REQUIREMENTS:
-1. Generate a COMPLETE async function with Excel.run wrapper
-2. Use proper context.sync() after loading properties and before accessing values
-3. Handle errors with comprehensive try-catch blocks
-4. Use correct cell coordinate management (CRITICAL)
-5. Always end with executeExcelOperation().catch(console.error);
-
-CRITICAL: CELL COORDINATE MANAGEMENT
-When working with usedRange and accessing cells:
-
-CORRECT - Use usedRange.getCell() for relative coordinates:
-\`\`\`javascript
-const foundCell = usedRange.getCell(row, col);
-foundCell.format.fill.color = "#FF0000";
+executeExcelOperation().catch(console.error);
 \`\`\`
 
-CORRECT - Convert to absolute coordinates:
-\`\`\`javascript
-const startRow = usedRange.getRowIndex();
-const startCol = usedRange.getColumnIndex();
-const absoluteCell = worksheet.getCell(startRow + row, startCol + col);
-\`\`\`
+[NEEDS_APPROVAL]
+true/false
 
-WRONG - Never mix relative and absolute coordinates:
-\`\`\`javascript
-// DON'T DO THIS - causes wrong cell targeting
-const cell = worksheet.getCell(row, col); // Uses relative coords with absolute method
-\`\`\`
+Examples:
 
-WORKING EXAMPLES:
+User: "Make A1 yellow"
+Response:
+[THINKING]
+The user wants to change the background color of cell A1 to yellow. This is a simple formatting operation.
 
-BASIC FORMATTING:
+[CONVERSATION]
+I'll change the background color of cell A1 to yellow for you.
+
+[CODE]
 \`\`\`javascript
 async function executeExcelOperation() {
   return Excel.run(async (context) => {
     try {
       const worksheet = context.workbook.worksheets.getActiveWorksheet();
-      const range = worksheet.getRange("A1:B10");
+      const range = worksheet.getRange("A1");
       range.format.fill.color = "#FFFF00";
       await context.sync();
     } catch (error) {
-      console.error("Formatting error:", error);
+      console.error(error);
       throw error;
     }
   });
@@ -183,44 +144,18 @@ async function executeExcelOperation() {
 executeExcelOperation().catch(console.error);
 \`\`\`
 
-SEARCH AND HIGHLIGHT ACROSS ALL WORKSHEETS:
-\`\`\`javascript
-async function executeExcelOperation() {
-  return Excel.run(async (context) => {
-    try {
-      const worksheets = context.workbook.worksheets;
-      worksheets.load("items");
-      await context.sync();
+[NEEDS_APPROVAL]
+false
 
-      for (const worksheet of worksheets.items) {
-        const usedRange = worksheet.getUsedRange();
-        if (usedRange) {
-          usedRange.load("values");
-          await context.sync();
+User: "Delete all data"
+Response:
+[THINKING]
+The user is asking to delete all data in the worksheet. This is a potentially destructive operation that could result in data loss.
 
-          for (let row = 0; row < usedRange.values.length; row++) {
-            for (let col = 0; col < usedRange.values[row].length; col++) {
-              const cellValue = usedRange.values[row][col];
-              if (cellValue && cellValue.toString().toLowerCase().includes("searchterm")) {
-                // CORRECT: Use relative coordinates with usedRange
-                const foundCell = usedRange.getCell(row, col);
-                foundCell.format.fill.color = "#FFFF00";
-              }
-            }
-          }
-        }
-      }
-      await context.sync();
-    } catch (error) {
-      console.error("Search error:", error);
-      throw error;
-    }
-  });
-}
-executeExcelOperation().catch(console.error);
-\`\`\`
+[CONVERSATION]
+I can help you delete all data from the current worksheet. This will permanently remove all values, formulas, and formatting. Would you like me to proceed?
 
-FIND AND REPLACE TEXT:
+[CODE]
 \`\`\`javascript
 async function executeExcelOperation() {
   return Excel.run(async (context) => {
@@ -228,21 +163,11 @@ async function executeExcelOperation() {
       const worksheet = context.workbook.worksheets.getActiveWorksheet();
       const usedRange = worksheet.getUsedRange();
       if (usedRange) {
-        usedRange.load("values");
-        await context.sync();
-
-        for (let row = 0; row < usedRange.values.length; row++) {
-          for (let col = 0; col < usedRange.values[row].length; col++) {
-            if (usedRange.values[row][col] === "oldtext") {
-              const cell = usedRange.getCell(row, col);
-              cell.values = [["newtext"]];
-            }
-          }
-        }
+        usedRange.clear();
         await context.sync();
       }
     } catch (error) {
-      console.error("Replace error:", error);
+      console.error(error);
       throw error;
     }
   });
@@ -250,176 +175,53 @@ async function executeExcelOperation() {
 executeExcelOperation().catch(console.error);
 \`\`\`
 
-CHART CREATION:
-\`\`\`javascript
-async function executeExcelOperation() {
-  return Excel.run(async (context) => {
-    try {
-      const worksheet = context.workbook.worksheets.getActiveWorksheet();
-      const usedRange = worksheet.getUsedRange();
-      if (usedRange) {
-        const chart = worksheet.charts.add("columnClustered", usedRange, "auto");
-        chart.setPosition("F2", "M15");
-        chart.title.text = "Data Chart";
-        chart.legend.position = "right";
-        await context.sync();
-      }
-    } catch (error) {
-      console.error("Chart creation error:", error);
-      throw error;
-    }
-  });
-}
-executeExcelOperation().catch(console.error);
-\`\`\`
+[NEEDS_APPROVAL]
+true
 
-WORKING WITH USER'S CURRENT SELECTION:
-\`\`\`javascript
-async function executeExcelOperation() {
-  return Excel.run(async (context) => {
-    try {
-      const range = context.workbook.getSelectedRange();
-      range.load("address");
-      await context.sync();
-
-      range.format.fill.color = "#00FF00";
-      await context.sync();
-    } catch (error) {
-      console.error("Selection error:", error);
-      throw error;
-    }
-  });
-}
-executeExcelOperation().catch(console.error);
-\`\`\`
-
-CONDITIONAL FORMATTING:
-\`\`\`javascript
-async function executeExcelOperation() {
-  return Excel.run(async (context) => {
-    try {
-      const worksheet = context.workbook.worksheets.getActiveWorksheet();
-      const range = worksheet.getUsedRange();
-      if (range) {
-        const conditionalFormat = range.conditionalFormats.add("cellValue");
-        conditionalFormat.cellValue.format.fill.color = "#FF0000";
-        conditionalFormat.cellValue.rule = { formula1: "100", operator: "greaterThan" };
-        await context.sync();
-      }
-    } catch (error) {
-      console.error("Conditional formatting error:", error);
-      throw error;
-    }
-  });
-}
-executeExcelOperation().catch(console.error);
-\`\`\`
-
-ERROR HANDLING PATTERNS:
-- Always wrap operations in try-catch
-- Check if ranges exist before using them
-- Load required properties before accessing values
-- Use meaningful error messages
-- Always call context.sync() after loading and before accessing
-
-COORDINATE RULES:
-1. usedRange.getCell(row, col) - Use for relative positioning within range
-2. worksheet.getCell(absRow, absCol) - Use for absolute worksheet positioning
-3. Never mix relative loop indices with absolute getCell() calls
-4. Always verify range exists before processing
-
-PERFORMANCE TIPS:
-- Load all required properties in one call
-- Minimize context.sync() calls
-- Process multiple operations before syncing
-- Use batch operations when possible
-
-Generate precise, reliable code that executes successfully with proper coordinate management.`;
+Be conversational, helpful, and always include both thinking and conversation responses.`;
 }
 
-function parseAIResponse(response: string): DirectExcelResponse {
-  try {
-    // Try to extract JSON from the response
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('No JSON found in AI response');
+function parseConversationalResponse(response: string): {
+  thinking: string;
+  conversation: string;
+  code?: string;
+  needsApproval: boolean;
+} {
+  const thinkingMatch = response.match(/\[THINKING\]\s*([\s\S]*?)(?=\[CONVERSATION\]|$)/);
+  const conversationMatch = response.match(/\[CONVERSATION\]\s*([\s\S]*?)(?=\[CODE\]|\[NEEDS_APPROVAL\]|$)/);
+  const codeMatch = response.match(/\[CODE\]\s*```(?:javascript|js)?\s*([\s\S]*?)```/);
+  const approvalMatch = response.match(/\[NEEDS_APPROVAL\]\s*(true|false)/);
+
+  const thinking = thinkingMatch ? thinkingMatch[1].trim() : 'Analyzing your request...';
+  const conversation = conversationMatch ? conversationMatch[1].trim() : 'I\'ll help you with that Excel task.';
+  const code = codeMatch ? codeMatch[1].trim() : undefined;
+  const needsApproval = approvalMatch ? approvalMatch[1] === 'true' : false;
+
+  // If no structured response, try to extract from unstructured response
+  if (!thinkingMatch && !conversationMatch) {
+    // Look for any code in the response
+    const anyCodeMatch = response.match(/```(?:javascript|js)?\s*([\s\S]*?)```/);
+    if (anyCodeMatch) {
+      return {
+        thinking: 'Processing your Excel request...',
+        conversation: 'I\'ll execute this Excel operation for you.',
+        code: anyCodeMatch[1].trim(),
+        needsApproval: false
+      };
+    } else {
+      return {
+        thinking: 'Understanding your request...',
+        conversation: response.trim() || 'I\'ll help you with that Excel task.',
+        code: undefined,
+        needsApproval: false
+      };
     }
-
-    // Log the raw JSON for debugging
-    logger.debug('Raw JSON match:', jsonMatch[0].substring(0, 200) + '...');
-
-    // Sanitize JSON string by escaping control characters only within string values
-    let sanitizedJson = jsonMatch[0];
-    let inString = false;
-    let escaped = false;
-    let result = '';
-
-    for (let i = 0; i < sanitizedJson.length; i++) {
-      const char = sanitizedJson[i];
-
-      if (escaped) {
-        result += char;
-        escaped = false;
-        continue;
-      }
-
-      if (char === '\\') {
-        escaped = true;
-        result += char;
-        continue;
-      }
-
-      if (char === '"' && !escaped) {
-        inString = !inString;
-        result += char;
-        continue;
-      }
-
-      if (inString && /[\x00-\x1F\x7F]/.test(char)) {
-        switch (char) {
-          case '\n': result += '\\n'; break;
-          case '\r': result += '\\r'; break;
-          case '\t': result += '\\t'; break;
-          case '\b': result += '\\b'; break;
-          case '\f': result += '\\f'; break;
-          default: result += '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0');
-        }
-      } else {
-        result += char;
-      }
-    }
-
-    sanitizedJson = result;
-
-    logger.debug('Sanitized JSON:', sanitizedJson.substring(0, 200) + '...');
-    const parsed = JSON.parse(sanitizedJson);
-
-    return {
-      understanding: parsed.understanding || 'AI did not provide understanding',
-      code: parsed.code || '',
-      confidence: parsed.confidence || 0.8,
-      message: parsed.message || 'AI will execute the operation',
-      tokensUsed: {
-        input: 0,
-        output: 0,
-        total: 0
-      }
-    };
-
-  } catch (error) {
-    logger.error('Failed to parse AI response:', error);
-
-    // Fallback: treat entire response as code
-    return {
-      understanding: 'Parsing failed, executing raw response',
-      code: response,
-      confidence: 0.5,
-      message: 'Raw AI response execution',
-      tokensUsed: {
-        input: 0,
-        output: 0,
-        total: 0
-      }
-    };
   }
+
+  return {
+    thinking,
+    conversation,
+    code,
+    needsApproval
+  };
 }
