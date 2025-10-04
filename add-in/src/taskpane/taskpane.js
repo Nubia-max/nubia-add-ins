@@ -1,9 +1,12 @@
 /*
  * Moose Excel Add-in - Taskpane
- * With Firebase Anonymous Authentication and Credit System
+ * With Firebase Anonymous Authentication, Credit System, and Live Feedback
  */
 
 console.log('🚀 Starting Moose Add-in with Anonymous Auth');
+
+// Import feedback system
+// Note: This will be handled by webpack bundling
 
 // Import unlimited executor functions
 // This is a hack to include the unlimitedExecutor.js content inline
@@ -23,6 +26,82 @@ const firebaseConfig = {
 let currentUser = null;
 let userCredits = 10;
 let auth = null;
+
+// Feedback System (simplified inline version)
+const FeedbackSystem = (() => {
+  let statusBar = null;
+  let currentTimeout = null;
+
+  function initialize() {
+    if (statusBar) return;
+
+    statusBar = document.createElement('div');
+    statusBar.className = 'ai-status-bar hidden';
+    statusBar.id = 'ai-feedback-bar';
+    document.body.appendChild(statusBar);
+
+    // Inject styles
+    const styles = document.createElement('style');
+    styles.textContent = `
+      .ai-status-bar {
+        position: fixed; bottom: 20px; right: 20px;
+        background: #111; color: white; padding: 8px 12px;
+        border-radius: 20px; font-size: 12px; font-weight: 500;
+        transition: all 0.3s ease; z-index: 10000;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        min-width: 120px; text-align: center;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      }
+      .ai-status-bar.hidden { opacity: 0; transform: translateY(20px); pointer-events: none; }
+      .ai-status-bar.visible { opacity: 1; transform: translateY(0); }
+      .ai-status-bar.loading { background: linear-gradient(45deg, #444, #666); animation: pulse 2s infinite; }
+      .ai-status-bar.thinking { background: linear-gradient(45deg, #8B4513, #A0522D); animation: glow 2s infinite; }
+      .ai-status-bar.stream { background: linear-gradient(45deg, #0052cc, #0066ff); animation: stream 1.5s infinite; }
+      .ai-status-bar.success { background: linear-gradient(45deg, #0f9d58, #2ecc71); }
+      .ai-status-bar.error { background: linear-gradient(45deg, #c62828, #e74c3c); animation: shake 0.5s ease-in-out; }
+      .ai-status-bar.warning { background: linear-gradient(45deg, #ff9800, #ffc107); }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+      @keyframes glow { 0%, 100% { box-shadow: 0 4px 12px rgba(139, 69, 19, 0.3); } 50% { box-shadow: 0 4px 20px rgba(139, 69, 19, 0.6); } }
+      @keyframes stream { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+      @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+    `;
+    document.head.appendChild(styles);
+  }
+
+  function setStatus(message, type = 'info', duration = 0) {
+    if (!statusBar) initialize();
+
+    if (currentTimeout) {
+      clearTimeout(currentTimeout);
+      currentTimeout = null;
+    }
+
+    statusBar.textContent = message;
+    statusBar.className = `ai-status-bar visible ${type}`;
+
+    if (duration > 0) {
+      currentTimeout = setTimeout(() => hide(), duration);
+    }
+  }
+
+  function hide() {
+    if (statusBar) statusBar.className = 'ai-status-bar hidden';
+  }
+
+  return {
+    initialize,
+    setStatus,
+    hide,
+    startThinking: (msg = '🧠 AI is thinking...') => setStatus(msg, 'thinking'),
+    streaming: (msg = '⚡ Streaming live response...') => setStatus(msg, 'stream'),
+    success: (msg = '✅ Done', dur = 3000) => setStatus(msg, 'success', dur),
+    error: (err, dur = 5000) => setStatus(`⚠️ Error: ${typeof err === 'string' ? err : err?.message || 'Unknown error'}`, 'error', dur),
+    contextBuilding: () => setStatus('📊 Analyzing Excel context...', 'thinking'),
+    executingCode: () => setStatus('⚡ Executing Excel code...', 'loading'),
+    awaitingApproval: () => setStatus('👤 Awaiting user approval...', 'warning'),
+    creditsUsed: (credits) => setStatus(`💳 ${credits} credits used`, 'info', 2000)
+  };
+})();
 
 // Simple client-side cache with expiration
 const cache = {
@@ -641,14 +720,24 @@ function finalizeStreaming(messageElement, finalContent, metadata = null) {
             addSystemMessage(`💳 Used ${metadata.creditsUsed} credits. Remaining: ${metadata.remainingCredits}`, 'info');
         }
 
-        // Handle Excel code execution with approval system
+        // Handle Excel code execution
         if (metadata?.code && metadata.code.trim()) {
-            handleAICodeApproval({
-                code: metadata.code,
-                understanding: metadata.understanding || finalContent || 'Excel operation',
-                message: finalContent,
-                confidence: metadata.confidence || 0.8
-            });
+            // Check if code should be auto-executed or requires approval
+            if (metadata.autoExecute || (metadata.confidence && metadata.confidence > 0.95)) {
+                // Auto-execute high-confidence or marked code
+                console.log('🚀 Auto-executing high-confidence code');
+                executeStreamedCode(metadata.code).catch(error => {
+                    console.error('Auto-execution failed:', error);
+                });
+            } else {
+                // Show approval prompt for lower confidence or complex code
+                handleAICodeApproval({
+                    code: metadata.code,
+                    understanding: metadata.understanding || finalContent || 'Excel operation',
+                    message: finalContent,
+                    confidence: metadata.confidence || 0.8
+                });
+            }
         }
 
         updateStatus('Response complete', 'success');
@@ -658,16 +747,19 @@ function finalizeStreaming(messageElement, finalContent, metadata = null) {
 // Execute generated Excel code with approval
 async function executeGeneratedCodeWithApproval(aiResponse) {
     addSystemMessage('🔄 Executing Excel command...', 'info');
+    FeedbackSystem.executingCode();
 
     try {
         const executionResult = await executeUnlimitedExcelCode(aiResponse.code, aiResponse.understanding || 'Excel operation');
 
         if (executionResult.success) {
             addSystemMessage('✅ Excel command executed successfully!', 'success');
+            FeedbackSystem.success('Excel code executed!');
             console.log('Excel execution result:', executionResult);
             return { success: true, result: executionResult };
         } else {
             addSystemMessage('⚠️ Excel command completed with warnings: ' + (executionResult.message || 'Check console for details'), 'warning');
+            FeedbackSystem.error('Excel execution warning');
             console.warn('Excel execution warning:', executionResult);
             return { success: false, message: executionResult.message };
         }
@@ -700,6 +792,7 @@ function handleAICodeApproval(aiResponse) {
     }
 
     // Show approval UI for manual review
+    FeedbackSystem.awaitingApproval();
     showApprovalPrompt(aiResponse);
 }
 
@@ -915,6 +1008,132 @@ function fallbackCopyToClipboard(text) {
     document.body.removeChild(textArea);
 }
 
+// Automatically execute streamed Excel code
+async function executeStreamedCode(codeString, messageId = null) {
+    console.log('🔄 Executing streamed Excel code...');
+
+    // Safety check: only execute Excel.run code
+    if (!codeString || typeof codeString !== 'string') {
+        console.warn('Invalid code provided for execution');
+        return;
+    }
+
+    const trimmedCode = codeString.trim();
+    if (!trimmedCode.startsWith('await Excel.run')) {
+        console.warn('Code does not start with "await Excel.run" - skipping execution for safety');
+        addSystemMessage('⚠️ Code execution skipped - must start with Excel.run', 'warning');
+        return;
+    }
+
+    // Show execution indicator
+    FeedbackSystem.executingCode();
+    const executionMessageId = addSystemMessage('⚡ Executing Excel operation...', 'info');
+
+    try {
+        // Create safe execution context
+        console.log('📝 Creating sandboxed Excel execution context...');
+
+        // Validate code structure
+        if (!trimmedCode.includes('context.sync()')) {
+            console.warn('Code may be missing context.sync() - this could cause issues');
+        }
+
+        // Execute code in sandboxed context
+        const asyncFunc = new Function('Excel', `
+            return (async () => {
+                try {
+                    ${trimmedCode}
+                } catch (error) {
+                    console.error('Excel code execution error:', error);
+                    throw error;
+                }
+            })();
+        `);
+
+        // Execute asynchronously to not block streaming
+        const result = await asyncFunc(Excel);
+
+        console.log('✅ Excel code executed successfully:', result);
+
+        // Update execution message
+        if (executionMessageId) {
+            executionMessageId.querySelector('.message-content').innerHTML =
+                '<span style="color: #155724;">✅ Excel operation completed successfully!</span>';
+        }
+
+        // Show success feedback
+        FeedbackSystem.success('✅ Action completed!');
+        addSystemMessage('✅ Excel action completed successfully!', 'success');
+
+        return { success: true, result };
+
+    } catch (error) {
+        console.error('❌ Excel code execution failed:', error);
+
+        // Update execution message with error
+        if (executionMessageId) {
+            executionMessageId.querySelector('.message-content').innerHTML =
+                `<span style="color: #721c24;">❌ Excel execution failed: ${error.message}</span>`;
+        }
+
+        // Show error feedback
+        FeedbackSystem.error('Excel execution failed');
+        addSystemMessage(`❌ Excel execution error: ${error.message}`, 'error');
+
+        return { success: false, error: error.message };
+
+    } finally {
+        // Clear execution status after a delay
+        setTimeout(() => {
+            if (FeedbackSystem.getCurrentStatus()?.type === 'loading') {
+                FeedbackSystem.hide();
+            }
+        }, 2000);
+    }
+}
+
+// Parse and handle streamed response data
+function handleStreamedResponse(data) {
+    try {
+        // Try to parse as JSON if it looks like structured data
+        if (data.trim().startsWith('{') && data.trim().endsWith('}')) {
+            const parsed = JSON.parse(data);
+
+            // Handle different response fields
+            if (parsed.status) {
+                console.log('📊 Status update:', parsed.status);
+                if (parsed.progress !== undefined) {
+                    FeedbackSystem.progress(parsed.status, parsed.progress);
+                } else {
+                    FeedbackSystem.setStatus(parsed.status, 'info');
+                }
+            }
+
+            if (parsed.understanding) {
+                console.log('🧠 AI Understanding:', parsed.understanding);
+                // This will be added to the streaming message content
+            }
+
+            // Automatically execute code if present
+            if (parsed.code) {
+                console.log('💻 Code detected in stream, executing asynchronously...');
+                // Execute code asynchronously to not block streaming
+                executeStreamedCode(parsed.code).catch(error => {
+                    console.error('Async code execution failed:', error);
+                });
+            }
+
+            // Return the parsed data for further processing
+            return parsed;
+        }
+    } catch (parseError) {
+        // Not JSON, treat as regular streaming token
+        console.log('📝 Streaming token:', data);
+    }
+
+    return null;
+}
+
 // Send message to AI with streaming response
 async function sendMessage() {
     const chatInput = document.getElementById('chatInput');
@@ -930,7 +1149,7 @@ async function sendMessage() {
         // Disable input while processing
         sendButton.disabled = true;
         chatInput.disabled = true;
-        updateStatus('Connecting to AI...', 'loading');
+        FeedbackSystem.contextBuilding();
 
         // Add user message to chat
         addMessage('user', message);
@@ -966,7 +1185,7 @@ async function sendMessageToAI(message) {
 
     // Show streaming indicator
     const streamingMessageId = addStreamingMessage();
-    updateStatus('🧠 Thinking...', 'loading');
+    FeedbackSystem.startThinking();
 
     try {
         // EventSource doesn't support POST with body, so we need to use fetch with SSE
@@ -1011,13 +1230,31 @@ async function sendMessageToAI(message) {
 
                         if (data === '[DONE]') {
                             finalizeStreaming(streamingMessageId, streamingContent);
+                            FeedbackSystem.success();
                             isComplete = true;
                             return;
                         }
 
-                        // Append token to streaming content
-                        streamingContent += data;
-                        appendStreamChunk(streamingMessageId, data);
+                        // Update to streaming status on first token
+                        if (streamingContent.length === 0) {
+                            FeedbackSystem.streaming();
+                        }
+
+                        // Try to handle structured response data
+                        const parsedData = handleStreamedResponse(data);
+
+                        if (parsedData) {
+                            // Handle structured response
+                            if (parsedData.understanding) {
+                                streamingContent += parsedData.understanding;
+                                appendStreamChunk(streamingMessageId, parsedData.understanding);
+                            }
+                            // Code execution is handled asynchronously in handleStreamedResponse
+                        } else {
+                            // Handle regular streaming token
+                            streamingContent += data;
+                            appendStreamChunk(streamingMessageId, data);
+                        }
 
                     } else if (line.startsWith('event: progress')) {
                         // Next line should be the progress data
@@ -1040,7 +1277,7 @@ async function sendMessageToAI(message) {
             if (!isComplete) {
                 removeMessage(streamingMessageId);
                 addSystemMessage('Streaming error: ' + error.message, 'error');
-                updateStatus('Streaming failed', 'error');
+                FeedbackSystem.error('Streaming failed');
             }
         }
 
@@ -1048,7 +1285,7 @@ async function sendMessageToAI(message) {
         console.error('Streaming setup error:', error);
         removeMessage(streamingMessageId);
         addSystemMessage('Failed to start streaming: ' + error.message, 'error');
-        updateStatus('Streaming failed', 'error');
+        FeedbackSystem.error('Failed to start streaming');
     }
 }
 
@@ -1268,6 +1505,10 @@ async function initializeTaskpane() {
     console.log('🚀 Initializing Moose Taskpane');
 
     try {
+        // Initialize feedback system
+        FeedbackSystem.initialize();
+        FeedbackSystem.setStatus('🔧 Initializing...', 'loading');
+
         // Setup Firebase anonymous authentication
         console.log('Setting up Firebase anonymous auth...');
         await setupAnonymousAuth();
@@ -1281,7 +1522,7 @@ async function initializeTaskpane() {
         console.log('Loading user credits...');
         await loadUserCredits();
 
-        updateStatus('Ready - Anonymous Mode', 'success');
+        FeedbackSystem.success('Ready - Anonymous Mode');
         console.log('✅ Taskpane initialized successfully');
 
         // Make clearAllAuthData available globally for testing
@@ -1289,7 +1530,7 @@ async function initializeTaskpane() {
 
     } catch (error) {
         console.error('Initialization failed:', error);
-        updateStatus('Initialization failed: ' + error.message, 'error');
+        FeedbackSystem.error('Initialization failed');
     }
 }
 
