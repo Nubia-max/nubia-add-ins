@@ -24,6 +24,7 @@ const firebaseConfig = {
 
 // Global state
 let currentUser = null;
+let currentUserMessage = '';
 let userCredits = 10;
 let auth = null;
 
@@ -372,230 +373,24 @@ function getSessionId() {
     return sessionId;
 }
 
-// Import the comprehensive Excel context builder
+// Import the SRR-powered Excel context builder
 // Note: This will be handled by webpack bundling
 async function buildExcelContext() {
-    // Use the comprehensive context builder for full workbook analysis
+    // Use the SRR-powered context builder for full workbook analysis
     try {
-        // This calls the dedicated utility function
-        return await buildComprehensiveExcelContext();
+        // Import and use the SRR-powered context builder
+        const { buildExcelContext: buildSRRContext } = await import('../utils/buildExcelContext.js');
+        return await buildSRRContext();
     } catch (error) {
-        console.warn('Comprehensive context failed, using fallback:', error);
-        // Fallback to quick context if comprehensive fails
+        console.warn('SRR context failed, using fallback:', error);
+        // Fallback to quick context if SRR fails
         return await buildQuickContext();
     }
 }
 
-// Comprehensive Excel context using the utility (will be imported via webpack)
-async function buildComprehensiveExcelContext() {
-    return await Excel.run(async (context) => {
-        console.log('📊 Building comprehensive Excel context...');
+// SRR-powered context is now imported dynamically above
 
-        const workbook = context.workbook;
-        const worksheets = workbook.worksheets;
-        const activeWorksheet = worksheets.getActiveWorksheet();
-        const selection = context.workbook.getSelectedRange();
-
-        // Load workbook-level properties
-        workbook.load(['name', 'application']);
-        worksheets.load('items');
-        activeWorksheet.load(['name', 'position']);
-        selection.load(['address', 'rowCount', 'columnCount']);
-
-        await context.sync();
-
-        console.log(`📖 Workbook: "${workbook.name}" with ${worksheets.items.length} sheets`);
-
-        const sheetsData = [];
-
-        // Process each worksheet with comprehensive data extraction
-        for (let i = 0; i < worksheets.items.length; i++) {
-            const sheet = worksheets.items[i];
-            const sheetData = await extractSheetData(context, sheet);
-            sheetsData.push(sheetData);
-        }
-
-        // Build final context object
-        const excelContext = {
-            workbookName: workbook.name || 'Untitled Workbook',
-            activeSheet: activeWorksheet.name,
-            selectedRange: selection.address,
-            totalSheets: worksheets.items.length,
-            worksheets: sheetsData,
-            contextSummary: generateContextSummary(sheetsData, activeWorksheet.name),
-            timestamp: new Date().toISOString()
-        };
-
-        console.log('✅ Excel context built successfully:', {
-            workbook: excelContext.workbookName,
-            sheets: excelContext.totalSheets,
-            activeSheet: excelContext.activeSheet,
-            selectedRange: excelContext.selectedRange
-        });
-
-        return excelContext;
-    });
-}
-
-// Extract comprehensive data from a single worksheet
-async function extractSheetData(context, sheet) {
-    try {
-        console.log(`📋 Processing sheet: "${sheet.name}"`);
-
-        sheet.load(['name', 'position', 'visibility']);
-
-        let sheetData = {
-            name: sheet.name,
-            position: null,
-            visibility: null,
-            activeRange: null,
-            sampleData: [],
-            namedRanges: [],
-            formulas: [],
-            charts: [],
-            rowCount: 0,
-            colCount: 0,
-            hasData: false
-        };
-
-        await context.sync();
-
-        sheetData.position = sheet.position;
-        sheetData.visibility = sheet.visibility;
-
-        // Try to get used range for data extraction
-        try {
-            const usedRange = sheet.getUsedRange();
-            usedRange.load(['values', 'formulas', 'address', 'rowCount', 'columnCount']);
-
-            await context.sync();
-
-            if (usedRange.values && usedRange.values.length > 0) {
-                sheetData.rowCount = usedRange.rowCount;
-                sheetData.colCount = usedRange.columnCount;
-                sheetData.activeRange = usedRange.address;
-
-                // Extract sample data (first 20 rows × 10 columns for performance)
-                const maxRows = Math.min(20, usedRange.values.length);
-                const maxCols = 10;
-
-                sheetData.sampleData = usedRange.values
-                    .slice(0, maxRows)
-                    .map(row => {
-                        if (Array.isArray(row)) {
-                            return row.slice(0, maxCols);
-                        }
-                        return [row]; // Single value
-                    });
-
-                // Check if sheet has meaningful data
-                sheetData.hasData = sheetData.sampleData.some(row =>
-                    row.some(cell => cell !== null && cell !== undefined && cell !== '')
-                );
-
-                // Extract formulas from used range
-                if (usedRange.formulas && usedRange.formulas.length > 0) {
-                    sheetData.formulas = extractFormulas(usedRange.formulas, usedRange.address);
-                }
-
-                console.log(`  📊 Data: ${sheetData.rowCount}×${sheetData.colCount}, Sample: ${sheetData.sampleData.length} rows`);
-            }
-
-        } catch (rangeError) {
-            console.log(`  ⚠️ No used range found for sheet "${sheet.name}"`);
-        }
-
-        return sheetData;
-
-    } catch (error) {
-        console.warn(`Error processing sheet "${sheet.name}":`, error);
-        return {
-            name: sheet.name || 'Error Sheet',
-            position: null,
-            activeRange: null,
-            sampleData: [],
-            namedRanges: [],
-            formulas: [],
-            charts: [],
-            rowCount: 0,
-            colCount: 0,
-            hasData: false,
-            error: error.message
-        };
-    }
-}
-
-// Extract formulas from range data
-function extractFormulas(formulasArray, rangeAddress) {
-    const formulas = [];
-    const startRow = parseInt(rangeAddress.match(/\d+/)[0]);
-
-    formulasArray.forEach((row, rowIndex) => {
-        if (Array.isArray(row)) {
-            row.forEach((formula, colIndex) => {
-                if (formula && typeof formula === 'string' && formula.startsWith('=')) {
-                    const cellAddress = `${columnIndexToLetter(colIndex)}${startRow + rowIndex}`;
-                    formulas.push({
-                        cell: cellAddress,
-                        formula: formula,
-                        result: null
-                    });
-                }
-            });
-        }
-    });
-
-    return formulas.slice(0, 50);
-}
-
-// Convert column index to Excel letter
-function columnIndexToLetter(index) {
-    let letter = '';
-    while (index >= 0) {
-        letter = String.fromCharCode((index % 26) + 65) + letter;
-        index = Math.floor(index / 26) - 1;
-    }
-    return letter;
-}
-
-// Generate context summary
-function generateContextSummary(sheets, activeSheet) {
-    const parts = [];
-    const totalSheets = sheets.length;
-    const sheetsWithData = sheets.filter(s => s.hasData).length;
-
-    parts.push(`Excel workbook with ${totalSheets} sheet(s), ${sheetsWithData} containing data`);
-
-    if (activeSheet) {
-        parts.push(`Currently active: "${activeSheet}"`);
-    }
-
-    sheets.forEach(sheet => {
-        const sheetParts = [];
-
-        if (sheet.hasData) {
-            sheetParts.push(`${sheet.rowCount}×${sheet.colCount} data`);
-        } else {
-            sheetParts.push('empty');
-        }
-
-        if (sheet.formulas && sheet.formulas.length > 0) {
-            sheetParts.push(`${sheet.formulas.length} formulas`);
-        }
-
-        if (sheet.namedRanges && sheet.namedRanges.length > 0) {
-            sheetParts.push(`${sheet.namedRanges.length} named ranges`);
-        }
-
-        if (sheet.charts && sheet.charts.length > 0) {
-            sheetParts.push(`${sheet.charts.length} charts`);
-        }
-
-        parts.push(`"${sheet.name}": ${sheetParts.join(', ')}`);
-    });
-
-    return parts.join('. ');
-}
+// Old context building functions removed - replaced by SRR system
 
 // Quick fallback context builder
 async function buildQuickContext() {
@@ -726,7 +521,7 @@ function finalizeStreaming(messageElement, finalContent, metadata = null) {
             if (metadata.autoExecute || (metadata.confidence && metadata.confidence > 0.95)) {
                 // Auto-execute high-confidence or marked code
                 console.log('🚀 Auto-executing high-confidence code');
-                executeStreamedCode(metadata.code).catch(error => {
+                executeStreamedCode(metadata.code, null, currentUserMessage).catch(error => {
                     console.error('Auto-execution failed:', error);
                 });
             } else {
@@ -1009,88 +804,260 @@ function fallbackCopyToClipboard(text) {
 }
 
 // Automatically execute streamed Excel code
-async function executeStreamedCode(codeString, messageId = null) {
-    console.log('🔄 Executing streamed Excel code...');
+async function executeStreamedCode(codeString, messageId = null, originalRequest = '', maxAttempts = 3) {
+    console.log('🧠 Starting SRR-powered execution...');
 
-    // Safety check: only execute Excel.run code
+    // Import SRR for this execution
+    const { SRR, buildRangeContext } = await import('../utils/buildExcelContext.js');
+
+    // Safety check
     if (!codeString || typeof codeString !== 'string') {
         console.warn('Invalid code provided for execution');
         return;
     }
 
-    const trimmedCode = codeString.trim();
+    let trimmedCode = codeString.trim();
     if (!trimmedCode.startsWith('await Excel.run')) {
         console.warn('Code does not start with "await Excel.run" - skipping execution for safety');
         addSystemMessage('⚠️ Code execution skipped - must start with Excel.run', 'warning');
         return;
     }
 
-    // Show execution indicator
-    FeedbackSystem.executingCode();
-    const executionMessageId = addSystemMessage('⚡ Executing Excel operation...', 'info');
+    // Parse the user's intent to determine target range
+    const targetRange = parseUserIntent(originalRequest);
+    console.log(`🎯 Detected target range: "${targetRange}"`);
 
-    try {
-        // Create safe execution context
-        console.log('📝 Creating sandboxed Excel execution context...');
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        console.log(`🔄 SRR Execution attempt ${attempt}/${maxAttempts}`);
 
-        // Validate code structure
-        if (!trimmedCode.includes('context.sync()')) {
-            console.warn('Code may be missing context.sync() - this could cause issues');
-        }
+        // Get pre-execution state
+        FeedbackSystem.setStatus('📊 Analyzing target range...', 'info');
+        const preExecutionState = await captureRangeState(targetRange, originalRequest);
 
-        // Execute code in sandboxed context
-        const asyncFunc = new Function('Excel', `
-            return (async () => {
-                try {
-                    ${trimmedCode}
-                } catch (error) {
-                    console.error('Excel code execution error:', error);
-                    throw error;
-                }
-            })();
-        `);
+        // Show execution indicator
+        FeedbackSystem.executingCode();
+        const executionMessageId = addSystemMessage(`⚡ Executing operation (attempt ${attempt}/${maxAttempts})...`, 'info');
 
-        // Execute asynchronously to not block streaming
-        const result = await asyncFunc(Excel);
+        try {
+            // Execute the code
+            const asyncFunc = new Function('Excel', `
+                return (async () => {
+                    try {
+                        ${trimmedCode}
+                    } catch (error) {
+                        console.error('Excel code execution error:', error);
+                        throw error;
+                    }
+                })();
+            `);
 
-        console.log('✅ Excel code executed successfully:', result);
+            const result = await asyncFunc(Excel);
+            console.log('✅ Code executed successfully:', result);
 
-        // Update execution message
-        if (executionMessageId) {
-            executionMessageId.querySelector('.message-content').innerHTML =
-                '<span style="color: #155724;">✅ Excel operation completed successfully!</span>';
-        }
-
-        // Show success feedback
-        FeedbackSystem.success('✅ Action completed!');
-        addSystemMessage('✅ Excel action completed successfully!', 'success');
-
-        return { success: true, result };
-
-    } catch (error) {
-        console.error('❌ Excel code execution failed:', error);
-
-        // Update execution message with error
-        if (executionMessageId) {
-            executionMessageId.querySelector('.message-content').innerHTML =
-                `<span style="color: #721c24;">❌ Excel execution failed: ${error.message}</span>`;
-        }
-
-        // Show error feedback
-        FeedbackSystem.error('Excel execution failed');
-        addSystemMessage(`❌ Excel execution error: ${error.message}`, 'error');
-
-        return { success: false, error: error.message };
-
-    } finally {
-        // Clear execution status after a delay
-        setTimeout(() => {
-            if (FeedbackSystem.getCurrentStatus()?.type === 'loading') {
-                FeedbackSystem.hide();
+            // Update execution message
+            if (executionMessageId) {
+                executionMessageId.querySelector('.message-content').innerHTML =
+                    '<span style="color: #155724;">✅ Code executed!</span>';
             }
-        }, 2000);
+
+            // Get post-execution state for REAL verification
+            FeedbackSystem.setStatus('🔍 Verifying visual results...', 'info');
+            addSystemMessage('🔍 Checking actual visual changes...', 'info');
+
+            const postExecutionState = await captureRangeState(targetRange, originalRequest);
+
+            // REAL visual verification
+            const verificationResult = verifyVisualChanges(
+                originalRequest,
+                targetRange,
+                preExecutionState,
+                postExecutionState,
+                attempt
+            );
+
+            if (verificationResult.success) {
+                // SUCCESS!
+                FeedbackSystem.success('✅ Task completed successfully!');
+                addSystemMessage(`✅ Verified: ${verificationResult.message}`, 'success');
+                return { success: true, result, attempts: attempt, verified: true };
+            } else {
+                // Visual verification failed
+                console.warn(`❌ Visual verification failed on attempt ${attempt}:`, verificationResult.reason);
+                addSystemMessage(`⚠️ ${verificationResult.reason}`, 'warning');
+
+                if (attempt < maxAttempts) {
+                    // Generate improved code for next attempt
+                    trimmedCode = generateImprovedCode(originalRequest, targetRange, verificationResult);
+                    addSystemMessage(`🔄 Generating improved code for attempt ${attempt + 1}...`, 'info');
+                } else {
+                    // Final attempt failed
+                    FeedbackSystem.error('Task incomplete');
+                    addSystemMessage(`❌ Task could not be completed: ${verificationResult.reason}`, 'error');
+                    return { success: false, error: verificationResult.reason, attempts: attempt, verified: false };
+                }
+            }
+
+        } catch (error) {
+            console.error(`❌ Code execution failed on attempt ${attempt}:`, error);
+
+            if (executionMessageId) {
+                executionMessageId.querySelector('.message-content').innerHTML =
+                    `<span style="color: #721c24;">❌ Attempt ${attempt} failed: ${error.message}</span>`;
+            }
+
+            if (attempt === maxAttempts) {
+                FeedbackSystem.error('Execution failed');
+                addSystemMessage(`❌ Execution failed after ${maxAttempts} attempts: ${error.message}`, 'error');
+                return { success: false, error: error.message, attempts: attempt };
+            }
+        }
     }
 }
+
+/**
+ * Parse user intent to determine target range
+ */
+function parseUserIntent(userRequest) {
+    const request = userRequest.toLowerCase();
+
+    // Check for explicit range references
+    if (request.includes('!')) {
+        const match = userRequest.match(/([^!]+)!([A-Z0-9:]+)/i);
+        if (match) return `${match[1]}!${match[2]}`;
+    }
+
+    // Check for semantic ranges
+    if (request.includes('entire sheet') || request.includes('whole sheet') || request.includes('all cells')) {
+        return 'entire sheet';
+    }
+
+    if (request.includes('used range') || request.includes('data range')) {
+        return 'used range';
+    }
+
+    if (request.includes('selected') || request.includes('selection')) {
+        return 'selection';
+    }
+
+    // Default to entire sheet for painting/formatting operations
+    if (request.includes('paint') || request.includes('color') || request.includes('fill')) {
+        return 'entire sheet';
+    }
+
+    return 'selection'; // Default fallback
+}
+
+/**
+ * Capture the actual visual state of a range
+ */
+async function captureRangeState(targetRange, userIntent) {
+    try {
+        const { buildRangeContext } = await import('../utils/buildExcelContext.js');
+        return await buildRangeContext(targetRange, userIntent);
+    } catch (error) {
+        console.error('Failed to capture range state:', error);
+        return { error: error.message };
+    }
+}
+
+/**
+ * REAL visual verification - checks actual formatting and range scope
+ */
+function verifyVisualChanges(userRequest, targetRange, preState, postState, attempt) {
+    try {
+        const request = userRequest.toLowerCase();
+
+        // Extract color intent
+        let expectedColor = null;
+        if (request.includes('black')) expectedColor = '#000000';
+        else if (request.includes('red')) expectedColor = '#FF0000';
+        else if (request.includes('blue')) expectedColor = '#0000FF';
+        else if (request.includes('yellow')) expectedColor = '#FFFF00';
+        else if (request.includes('green')) expectedColor = '#00FF00';
+
+        // Check if range scope matches intent
+        const isEntireSheetRequest = request.includes('entire sheet') || request.includes('whole sheet') || request.includes('all cells');
+        const actualCellCount = postState.range?.cellCount || 0;
+
+        console.log(`🔍 Verification: Expected color: ${expectedColor}, Cell count: ${actualCellCount}, Entire sheet: ${isEntireSheetRequest}`);
+
+        // For "entire sheet" requests, expect massive cell count
+        if (isEntireSheetRequest && actualCellCount < 1000000) {
+            return {
+                success: false,
+                reason: `Only ${actualCellCount} cells affected, but user requested entire sheet. Expected millions of cells.`,
+                suggestedFix: 'Use sheet.getRange() instead of getUsedRange()'
+            };
+        }
+
+        // Check color if specified
+        if (expectedColor && postState.formatting?.fillColor) {
+            const actualColor = postState.formatting.fillColor.toUpperCase();
+            const expectedColorUpper = expectedColor.toUpperCase();
+
+            if (actualColor !== expectedColorUpper) {
+                return {
+                    success: false,
+                    reason: `Expected color ${expectedColor} but got ${actualColor}`,
+                    suggestedFix: `Set fill color to "${expectedColor}"`
+                };
+            }
+        }
+
+        // Success!
+        return {
+            success: true,
+            message: `Successfully applied to ${actualCellCount.toLocaleString()} cells${expectedColor ? ` with color ${expectedColor}` : ''}`
+        };
+
+    } catch (error) {
+        return {
+            success: false,
+            reason: `Verification error: ${error.message}`,
+            suggestedFix: 'Check range resolution'
+        };
+    }
+}
+
+/**
+ * Generate improved code based on verification failure
+ */
+function generateImprovedCode(userRequest, targetRange, verificationResult) {
+    const request = userRequest.toLowerCase();
+
+    // Extract color
+    let color = 'black';
+    if (request.includes('red')) color = 'red';
+    else if (request.includes('blue')) color = 'blue';
+    else if (request.includes('yellow')) color = 'yellow';
+    else if (request.includes('green')) color = 'green';
+
+    // If verification suggests using sheet.getRange() instead of getUsedRange()
+    if (verificationResult.suggestedFix?.includes('getRange()')) {
+        return `await Excel.run(async (context) => {
+    // Get the active worksheet
+    const sheet = context.workbook.worksheets.getActiveWorksheet();
+
+    // Get the ENTIRE sheet range (not just used range)
+    const entireRange = sheet.getRange();
+
+    // Set the fill color to ${color}
+    entireRange.format.fill.color = "${color}";
+
+    await context.sync();
+});`;
+    }
+
+    // Default improved code
+    return `await Excel.run(async (context) => {
+    const sheet = context.workbook.worksheets.getActiveWorksheet();
+    const range = sheet.getRange(); // Entire sheet
+    range.format.fill.color = "${color}";
+    await context.sync();
+});`;
+}
+
+// Old AI verification function removed - replaced with direct visual verification above
 
 // Parse and handle streamed response data
 function handleStreamedResponse(data) {
@@ -1138,7 +1105,7 @@ function handleStreamedResponse(data) {
                     }
                 } else {
                     console.log('✅ Auto-executing approved code');
-                    executeStreamedCode(parsed.code).catch(error => {
+                    executeStreamedCode(parsed.code, null, currentUserMessage).catch(error => {
                         console.error('Async code execution failed:', error);
                         addSystemMessage('Code execution failed: ' + error.message, 'error');
                     });
@@ -1194,6 +1161,9 @@ async function sendMessage() {
 
 // Stream AI response using EventSource
 async function sendMessageToAI(message) {
+    // Store the current message for verification
+    currentUserMessage = message;
+
     const token = await getAuthToken();
     const sessionId = getSessionId();
     const context = await buildExcelContext();

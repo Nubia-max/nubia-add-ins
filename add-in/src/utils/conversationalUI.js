@@ -75,7 +75,7 @@ function showApprovalDialog(code, description) {
         window.FeedbackSystem.executingCode();
 
         try {
-            await executeStreamedCode(code);
+            await executeStreamedCode(code, null, 'User approved action');
             addSystemMessage('✅ Code executed successfully', 'success');
             window.FeedbackSystem.success('✅ Done');
         } catch (error) {
