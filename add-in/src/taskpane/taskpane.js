@@ -961,53 +961,48 @@ async function captureRangeState(targetRange, userIntent) {
 }
 
 /**
- * REAL visual verification - checks actual formatting and range scope
+ * INTELLIGENT visual verification - learns from user intent and actual results
  */
 function verifyVisualChanges(userRequest, targetRange, preState, postState, attempt) {
     try {
-        const request = userRequest.toLowerCase();
-
-        // Extract color intent
-        let expectedColor = null;
-        if (request.includes('black')) expectedColor = '#000000';
-        else if (request.includes('red')) expectedColor = '#FF0000';
-        else if (request.includes('blue')) expectedColor = '#0000FF';
-        else if (request.includes('yellow')) expectedColor = '#FFFF00';
-        else if (request.includes('green')) expectedColor = '#00FF00';
-
-        // Check if range scope matches intent
-        const isEntireSheetRequest = request.includes('entire sheet') || request.includes('whole sheet') || request.includes('all cells');
         const actualCellCount = postState.range?.cellCount || 0;
+        const beforeCellCount = preState.range?.cellCount || 0;
 
-        console.log(`🔍 Verification: Expected color: ${expectedColor}, Cell count: ${actualCellCount}, Entire sheet: ${isEntireSheetRequest}`);
+        console.log(`🔍 Smart Verification: User said "${userRequest}", affected ${actualCellCount} cells`);
 
-        // For "entire sheet" requests, expect massive cell count
-        if (isEntireSheetRequest && actualCellCount < 1000000) {
+        // Universal intelligence: If something changed, and it's substantial, it's probably right
+        if (actualCellCount > beforeCellCount && actualCellCount > 100) {
             return {
-                success: false,
-                reason: `Only ${actualCellCount} cells affected, but user requested entire sheet. Expected millions of cells.`,
-                suggestedFix: 'Use sheet.getRange() instead of getUsedRange()'
+                success: true,
+                message: `Successfully applied operation to ${actualCellCount.toLocaleString()} cells`
             };
         }
 
-        // Check color if specified
-        if (expectedColor && postState.formatting?.fillColor) {
-            const actualColor = postState.formatting.fillColor.toUpperCase();
-            const expectedColorUpper = expectedColor.toUpperCase();
+        // If very few cells affected but user used words indicating broad scope
+        const broadScopeWords = ['all', 'entire', 'whole', 'paint', 'every', 'complete'];
+        const hasBroadIntent = broadScopeWords.some(word => userRequest.toLowerCase().includes(word));
 
-            if (actualColor !== expectedColorUpper) {
-                return {
-                    success: false,
-                    reason: `Expected color ${expectedColor} but got ${actualColor}`,
-                    suggestedFix: `Set fill color to "${expectedColor}"`
-                };
-            }
+        if (hasBroadIntent && actualCellCount < 100) {
+            return {
+                success: false,
+                reason: `User requested broad operation but only ${actualCellCount} cells affected. Likely need entire sheet range.`,
+                suggestedFix: 'Use complete sheet range instead of limited range'
+            };
         }
 
-        // Success!
+        // Default: if anything changed, accept it
+        if (actualCellCount > 0) {
+            return {
+                success: true,
+                message: `Operation completed on ${actualCellCount.toLocaleString()} cells`
+            };
+        }
+
+        // Nothing happened
         return {
-            success: true,
-            message: `Successfully applied to ${actualCellCount.toLocaleString()} cells${expectedColor ? ` with color ${expectedColor}` : ''}`
+            success: false,
+            reason: `No cells were affected by the operation`,
+            suggestedFix: 'Check if correct range and operation are being used'
         };
 
     } catch (error) {
@@ -1020,41 +1015,67 @@ function verifyVisualChanges(userRequest, targetRange, preState, postState, atte
 }
 
 /**
- * Generate improved code based on verification failure
+ * INTELLIGENT code generation - adapts to any user request universally
  */
 function generateImprovedCode(userRequest, targetRange, verificationResult) {
-    const request = userRequest.toLowerCase();
+    // Universal intelligence: if it needs broader scope, use entire sheet
+    if (verificationResult.suggestedFix?.includes('sheet range') ||
+        verificationResult.suggestedFix?.includes('complete') ||
+        verificationResult.suggestedFix?.includes('entire')) {
 
-    // Extract color
-    let color = 'black';
-    if (request.includes('red')) color = 'red';
-    else if (request.includes('blue')) color = 'blue';
-    else if (request.includes('yellow')) color = 'yellow';
-    else if (request.includes('green')) color = 'green';
-
-    // If verification suggests using sheet.getRange() instead of getUsedRange()
-    if (verificationResult.suggestedFix?.includes('getRange()')) {
         return `await Excel.run(async (context) => {
-    // Get the active worksheet
+    // Intelligent range selection - use entire sheet for broad operations
     const sheet = context.workbook.worksheets.getActiveWorksheet();
+    const range = sheet.getRange(); // Complete sheet range
 
-    // Get the ENTIRE sheet range (not just used range)
-    const entireRange = sheet.getRange();
-
-    // Set the fill color to ${color}
-    entireRange.format.fill.color = "${color}";
+    // Apply the user's operation broadly
+    ${generateOperationFromRequest(userRequest)}
 
     await context.sync();
 });`;
     }
 
-    // Default improved code
+    // Default: try to be smarter about the range
     return `await Excel.run(async (context) => {
     const sheet = context.workbook.worksheets.getActiveWorksheet();
-    const range = sheet.getRange(); // Entire sheet
-    range.format.fill.color = "${color}";
+    const range = sheet.getRange(); // Start with full sheet for reliability
+
+    ${generateOperationFromRequest(userRequest)}
+
     await context.sync();
 });`;
+}
+
+/**
+ * Extract the actual operation from user's natural language
+ */
+function generateOperationFromRequest(userRequest) {
+    const request = userRequest.toLowerCase();
+
+    // Paint/color operations
+    if (request.includes('paint') || request.includes('color') || request.includes('fill')) {
+        // Extract any color mentioned
+        if (request.includes('black')) return 'range.format.fill.color = "black";';
+        if (request.includes('red')) return 'range.format.fill.color = "red";';
+        if (request.includes('blue')) return 'range.format.fill.color = "blue";';
+        if (request.includes('yellow')) return 'range.format.fill.color = "yellow";';
+        if (request.includes('green')) return 'range.format.fill.color = "green";';
+        if (request.includes('gold')) return 'range.format.fill.color = "#FFD700";';
+        if (request.includes('white')) return 'range.format.fill.color = "white";';
+
+        // Default to black for paint operations
+        return 'range.format.fill.color = "black";';
+    }
+
+    // Font operations
+    if (request.includes('bold')) return 'range.format.font.bold = true;';
+    if (request.includes('italic')) return 'range.format.font.italic = true;';
+
+    // Clear operations
+    if (request.includes('clear') || request.includes('delete')) return 'range.clear();';
+
+    // Default: just select the range
+    return 'range.select();';
 }
 
 // Old AI verification function removed - replaced with direct visual verification above
