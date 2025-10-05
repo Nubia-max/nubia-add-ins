@@ -35,31 +35,24 @@ function quickAnalysis(event) {
                 columnCount: selectedRange.columnCount
             };
 
-            // Send to backend for AI analysis
-            const response = await fetch(`${API_BASE_URL}/chat`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    message: `Please analyze this Excel data and provide insights: ${selectedRange.address}`,
-                    context: {
-                        selection: analysisData,
-                        source: 'quick-analysis'
-                    }
-                })
+            // Send to backend for AI analysis using streaming endpoint
+            const result = await callStreamingEndpoint({
+                message: `Please analyze this Excel data and provide insights: ${selectedRange.address}`,
+                context: {
+                    selection: analysisData,
+                    source: 'quick-analysis'
+                }
             });
 
-            if (response.ok) {
-                const result = await response.json();
-                const analysis = result.message || result.data || 'Analysis completed.';
+            if (result.success) {
+                const analysis = result.content || 'Analysis completed.';
 
                 showDialog('Quick Analysis Results', `
                     <strong>Analysis of ${selectedRange.address}:</strong><br><br>
                     ${analysis.replace(/\n/g, '<br>')}
                 `);
             } else {
-                showDialog('Analysis Error', 'Failed to analyze data. Please check your connection and try again.');
+                showDialog('Analysis Error', result.error || 'Failed to analyze data. Please check your connection and try again.');
             }
 
         } catch (error) {
@@ -150,6 +143,86 @@ function showDialog(title, content) {
             console.error('Dialog failed to open:', result.error);
         }
     });
+}
+
+/**
+ * Call the streaming endpoint and return the final result
+ * @param {Object} requestData - The data to send to the streaming endpoint
+ * @returns {Promise<Object>} - { success: boolean, content?: string, error?: string }
+ */
+async function callStreamingEndpoint(requestData) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/chat/stream`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-anonymous-id': 'anonymous',
+                'Accept': 'text/event-stream',
+                'Cache-Control': 'no-cache'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullContent = '';
+        let buffer = '';
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.trim() === '') continue;
+
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        if (data === '[DONE]') {
+                            return { success: true, content: fullContent };
+                        }
+
+                        // Try to parse as JSON first (structured data)
+                        try {
+                            const jsonData = JSON.parse(data);
+                            if (jsonData.conversation) {
+                                fullContent += jsonData.conversation;
+                            } else if (jsonData.thinking) {
+                                // Skip thinking content for quick analysis
+                                continue;
+                            } else if (jsonData.status) {
+                                // Skip status updates
+                                continue;
+                            }
+                        } catch (e) {
+                            // If not JSON, treat as plain text content
+                            fullContent += data;
+                        }
+                    }
+                }
+            }
+        } catch (streamError) {
+            console.error('Stream reading error:', streamError);
+            throw new Error('Failed to read streaming response');
+        }
+
+        return { success: true, content: fullContent };
+
+    } catch (error) {
+        console.error('Streaming endpoint error:', error);
+        return {
+            success: false,
+            error: error.message || 'Failed to connect to streaming endpoint'
+        };
+    }
 }
 
 /**

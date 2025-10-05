@@ -343,5 +343,3 @@ export async function buildQuickExcelContext() {
   }
 }
 
-// Export both functions
-export { buildQuickExcelContext };
